@@ -1,77 +1,89 @@
 ---
-- name: Initial System Bootstrap
-  hosts: all
+- name: Bootstrap Debian and Ubuntu servers
+  hosts: bootstrap
   become: true
   gather_facts: true
 
   vars:
     bootstrap_user: "work_user"
-    bootstrap_ssh_public_key: "{{ lookup('file', '/root/.ssh/ssh-ed25519.pub') }}"
-    # Настройки системы
+    bootstrap_ssh_public_key_path: "{{ lookup('env', 'HOME') }}/.ssh/id_ed25519.pub"
     bootstrap_timezone: "Europe/Moscow"
     bootstrap_locale: "en_US.UTF-8"
-    # Базовые системные утилиты
+    # Passwordless sudo is convenient for a key-only bootstrap account.
+    # Set to false after configuring a password for bootstrap_user.
+    bootstrap_passwordless_sudo: true
     bootstrap_packages:
+      - ca-certificates
       - curl
-      - wget
       - git
       - htop
-      - tmux
-      - vim
       - jq
       - ncdu
-      - ripgrep
       - net-tools
+      - ripgrep
       - rsync
-      - ca-certificates
       - sudo
+      - tmux
+      - vim
+      - wget
+      - locales
 
   handlers:
-    - name: Restart sshd
+    - name: Restart ssh service
       ansible.builtin.service:
-        name: "{{ 'ssh' if ansible_os_family == 'Debian' else 'sshd' }}"
+        name: ssh
         state: restarted
 
+  pre_tasks:
+    - name: Verify supported operating system
+      ansible.builtin.assert:
+        that:
+          - ansible_os_family == "Debian"
+        fail_msg: >-
+          This playbook supports Debian and Ubuntu only. It uses apt, the sudo
+          group, and Debian's locale_gen module.
+
+    - name: Verify SSH public key exists on the Ansible controller
+      ansible.builtin.assert:
+        that:
+          - lookup('ansible.builtin.file', bootstrap_ssh_public_key_path, errors='ignore') | trim | length > 0
+        fail_msg: >-
+          SSH public key not found at {{ bootstrap_ssh_public_key_path }}.
+          Set bootstrap_ssh_public_key_path to the path of your .pub file.
+      become: false
+      run_once: true
+
   tasks:
-    # =========================================================================
-    # 1. СИСТЕМНЫЕ НАСТРОЙКИ (TIMEZONE & LOCALE)
-    # =========================================================================
-    - name: Set timezone
+    - name: Set system timezone
       community.general.timezone:
         name: "{{ bootstrap_timezone }}"
       tags: [system, timezone]
 
-    - name: Ensure locale is generated
+    - name: Generate system locale
       community.general.locale_gen:
         name: "{{ bootstrap_locale }}"
         state: present
       tags: [system, locale]
 
-    # =========================================================================
-    # 2. ОБНОВЛЕНИЕ ПАКЕТОВ И УСТАНОВКА УТИЛИТ
-    # =========================================================================
-    - name: Update apt cache
+    - name: Update apt package cache
       ansible.builtin.apt:
         update_cache: true
         cache_valid_time: 3600
       tags: [packages]
 
-    - name: Install essential baseline packages
+    - name: Install baseline packages
       ansible.builtin.apt:
         name: "{{ bootstrap_packages }}"
         state: present
       tags: [packages]
 
-    # =========================================================================
-    # 3. ПОЛЬЗОВАТЕЛЬ И ПРАВА SUDO
-    # =========================================================================
     - name: Ensure sudo group exists
       ansible.builtin.group:
         name: sudo
         state: present
       tags: [users]
 
-    - name: Create non-root admin user
+    - name: Create administrator account
       ansible.builtin.user:
         name: "{{ bootstrap_user }}"
         shell: /bin/bash
@@ -81,42 +93,41 @@
         state: present
       tags: [users]
 
-    - name: Configure passwordless sudo for user
+    - name: Configure sudo access for administrator
       ansible.builtin.copy:
         dest: "/etc/sudoers.d/{{ bootstrap_user }}"
-        content: "{{ bootstrap_user }} ALL=(ALL) NOPASSWD:ALL\n"
+        content: "{{ bootstrap_user }} ALL=(ALL) {{ 'NOPASSWD:' if bootstrap_passwordless_sudo else '' }}ALL\n"
         owner: root
         group: root
         mode: "0440"
         validate: "visudo -cf %s"
       tags: [users, sudo]
 
-    - name: Deploy authorized SSH key for user
+    - name: Install SSH public key for administrator
       ansible.posix.authorized_key:
         user: "{{ bootstrap_user }}"
         state: present
-        key: "{{ bootstrap_ssh_public_key }}"
+        key: "{{ lookup('ansible.builtin.file', bootstrap_ssh_public_key_path) }}"
       tags: [users, ssh]
 
-    # =========================================================================
-    # 4. БАЗОВОЕ ХАРДЕНИНГ-НАСТРОЙКИ SSHD
-    # =========================================================================
     - name: Disable SSH password authentication
       ansible.builtin.lineinfile:
         path: /etc/ssh/sshd_config
-        regexp: "^(#)?PasswordAuthentication"
+        regexp: "^\\s*#?\\s*PasswordAuthentication\\s+"
         line: "PasswordAuthentication no"
         state: present
         validate: "/usr/sbin/sshd -t -f %s"
-      notify: Restart sshd
+        backup: true
+      notify: Restart ssh service
       tags: [ssh, hardening]
 
-    - name: Disable SSH root password login (permit keys only)
+    - name: Disable SSH root password login
       ansible.builtin.lineinfile:
         path: /etc/ssh/sshd_config
-        regexp: "^(#)?PermitRootLogin"
+        regexp: "^\\s*#?\\s*PermitRootLogin\\s+"
         line: "PermitRootLogin prohibit-password"
         state: present
         validate: "/usr/sbin/sshd -t -f %s"
-      notify: Restart sshd
+        backup: true
+      notify: Restart ssh service
       tags: [ssh, hardening]
