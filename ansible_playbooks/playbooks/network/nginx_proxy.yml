@@ -178,6 +178,15 @@
       changed_when: false
       tags: [nginx, config, tls, validation]
 
+    - name: Ensure Certbot deploy-hook directory exists
+      ansible.builtin.file:
+        path: /etc/letsencrypt/renewal-hooks/deploy
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+      tags: [certbot, config]
+
     - name: Install NGINX reload hook for renewed certificates
       ansible.builtin.copy:
         dest: /etc/letsencrypt/renewal-hooks/deploy/reload-nginx
