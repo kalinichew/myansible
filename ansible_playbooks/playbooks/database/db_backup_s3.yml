@@ -67,7 +67,7 @@
             /usr/bin/zstd -T0 -{{ db_backup_zstd_level }} -o "${temporary_file}"
 
           /usr/bin/aws s3 cp "${temporary_file}" \
-            "s3://{{ db_backup_s3_bucket }}/{{ db_backup_s3_prefix }}/${filename}" \
+            "s3://$DB_BACKUP_S3_BUCKET/$DB_BACKUP_S3_PREFIX/${filename}" \
             --only-show-errors --sse AES256
 
           /usr/bin/mv "${temporary_file}" "${local_file}"
