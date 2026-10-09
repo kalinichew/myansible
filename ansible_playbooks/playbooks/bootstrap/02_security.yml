@@ -3,6 +3,7 @@
   hosts: debian_servers
   become: true
   gather_facts: true
+  serial: 1
 
   pre_tasks:
     - name: Verify supported operating system
@@ -12,6 +13,17 @@
           - ansible_distribution in ["Debian", "Ubuntu"]
         fail_msg: "This playbook supports Debian and Ubuntu only."
       tags: [always, platform]
+
+    - name: Verify SSH port is allowed before firewall activation
+      ansible.builtin.assert:
+        that:
+          - security_ssh_port | int in (security_ufw_allowed_tcp_ports | map('int') | list)
+          - security_ssh_port | int > 0
+          - security_ssh_port | int < 65536
+        fail_msg: >-
+          The configured SSH port must be included in
+          security_ufw_allowed_tcp_ports before enabling UFW.
+      tags: [always, firewall, ssh]
 
     - name: Confirm bootstrap administrator is configured
       ansible.builtin.assert:
