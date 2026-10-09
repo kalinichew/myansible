@@ -77,11 +77,12 @@ ansible-inventory --graph
 
 ~~~bash
 cp inventory/group_vars/all/vault.example.yml inventory/group_vars/all/vault.yml
-ansible-vault edit inventory/group_vars/all/vault.yml
+# Заполните нужные значения в редакторе, не добавляя файл в Git
+$EDITOR inventory/group_vars/all/vault.yml
 ansible-vault encrypt inventory/group_vars/all/vault.yml
 ~~~
 
-Заполните только нужные секреты: hash пароля bootstrap-администратора, пароль PostgreSQL, токен Vector, admin password и encryption key AWX, admin password Jenkins. Для `vault_bootstrap_admin_password_hash` используйте парольный hash, не открытый пароль. Ключ AWX создайте один раз, например `openssl rand -base64 48`, и сохраните в Vault: смена этого ключа после развёртывания лишит AWX доступа к ранее зашифрованным данным.
+После первого шифрования редактируйте файл командой `ansible-vault edit inventory/group_vars/all/vault.yml`. Заполните только нужные секреты: hash пароля bootstrap-администратора, пароль PostgreSQL, токен Vector, admin password и encryption key AWX, admin password Jenkins. Для `vault_bootstrap_admin_password_hash` используйте парольный hash, не открытый пароль. Ключ AWX создайте один раз, например `openssl rand -base64 48`, и сохраните в Vault: смена этого ключа после развёртывания лишит AWX доступа к ранее зашифрованным данным.
 
 Пароль Vault храните отдельно от Git. Запускайте секрет-зависимые playbook с `--ask-vault-pass`.
 
