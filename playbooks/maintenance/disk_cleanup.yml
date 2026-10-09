@@ -1,0 +1,56 @@
+---
+- name: Clean old journals, Docker artifacts, and obsolete packages
+  hosts: debian_servers
+  become: true
+  gather_facts: true
+  serial: 1
+
+  pre_tasks:
+    - name: Verify supported operating system
+      ansible.builtin.assert:
+        that:
+          - ansible_os_family == "Debian"
+          - ansible_distribution in ["Debian", "Ubuntu"]
+        fail_msg: "This cleanup playbook supports Debian and Ubuntu only."
+      tags: [always, platform]
+
+  tasks:
+    - name: Vacuum systemd journal by configured retention
+      ansible.builtin.command:
+        argv:
+          - journalctl
+          - --vacuum-time={{ disk_journal_vacuum_time }}
+      register: journal_vacuum
+      changed_when: "'freed 0B' not in journal_vacuum.stdout"
+      environment:
+        LC_ALL: C
+      tags: [cleanup, journal]
+
+    - name: Check whether Docker daemon socket exists
+      ansible.builtin.stat:
+        path: /var/run/docker.sock
+      register: docker_socket
+      tags: [cleanup, docker]
+
+    - name: Prune stopped containers, old unused images, and build cache
+      community.docker.docker_prune:
+        containers: true
+        containers_filters:
+          until: "{{ docker_prune_until }}"
+        images: true
+        images_filters:
+          dangling: false
+          until: "{{ docker_prune_until }}"
+        builder_cache: true
+        builder_cache_filters:
+          until: "{{ docker_prune_until }}"
+      when: docker_socket.stat.exists
+      tags: [cleanup, docker]
+
+    - name: Remove obsolete packages and cached package archives
+      ansible.builtin.apt:
+        autoremove: true
+        purge: true
+        autoclean: true
+        clean: true
+      tags: [cleanup, packages, kernels]
