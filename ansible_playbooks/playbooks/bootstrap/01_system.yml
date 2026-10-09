@@ -18,8 +18,9 @@
         that:
           - bootstrap_admin_user | length > 0
           - bootstrap_admin_user != "root"
+          - bootstrap_admin_password_hash | length > 0
           - bootstrap_admin_groups | length > 0
-        fail_msg: "Set a non-root bootstrap_admin_user and at least one admin group."
+        fail_msg: "Set a non-root bootstrap_admin_user, admin group, and password hash in Ansible Vault."
       tags: [always, users]
 
     - name: Verify SSH public key exists on the Ansible controller
@@ -68,10 +69,13 @@
       ansible.builtin.user:
         name: "{{ bootstrap_admin_user }}"
         shell: "{{ bootstrap_admin_shell }}"
+        password: "{{ bootstrap_admin_password_hash }}"
+        update_password: on_create
         groups: "{{ bootstrap_admin_groups | join(',') }}"
         append: true
         create_home: true
         state: present
+      no_log: true
       tags: [users, config]
 
     - name: Configure administrator sudo policy
