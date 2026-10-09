@@ -5,6 +5,19 @@
   gather_facts: true
 
   pre_tasks:
+    - name: Check Docker socket required by the container log source
+      ansible.builtin.stat:
+        path: /var/run/docker.sock
+      register: vector_docker_socket
+      tags: [always, docker, vector]
+
+    - name: Require Docker Engine for Docker log collection
+      ansible.builtin.assert:
+        that:
+          - vector_docker_socket.stat.exists
+        fail_msg: "Install Docker Engine before enabling the Vector Docker log source."
+      tags: [always, docker, vector]
+
     - name: Validate Vector destination and token
       ansible.builtin.assert:
         that:
