@@ -12,8 +12,8 @@
           - ansible_os_family == "Debian"
           - ansible_distribution in ["Debian", "Ubuntu"]
           - wireguard_peers | length > 0
-          - wireguard_peers | selectattr('public_key', 'defined') | list | length == wireguard_peers | length
-          - wireguard_peers | selectattr('allowed_ips', 'defined') | list | length == wireguard_peers | length
+          - (wireguard_peers | selectattr('public_key', 'defined') | list | length) == (wireguard_peers | length)
+          - (wireguard_peers | selectattr('allowed_ips', 'defined') | list | length) == (wireguard_peers | length)
         fail_msg: "Set wireguard_peers and target Debian/Ubuntu before configuring WireGuard."
       tags: [always, platform, wireguard]
 
@@ -109,6 +109,20 @@
       no_log: true
       notify: Restart WireGuard interface
       tags: [wireguard, config, service]
+
+    - name: Install UFW before adding WireGuard firewall rules
+      ansible.builtin.apt:
+        name: ufw
+        state: present
+      tags: [wireguard, firewall, packages]
+
+    - name: Allow SSH port before enabling UFW
+      community.general.ufw:
+        rule: allow
+        port: "{{ security_ssh_port | string }}"
+        proto: tcp
+      notify: Reload UFW
+      tags: [wireguard, firewall, config]
 
     - name: Allow WireGuard UDP port in UFW
       community.general.ufw:
