@@ -70,7 +70,8 @@
         name: "{{ bootstrap_admin_user }}"
         shell: "{{ bootstrap_admin_shell }}"
         password: "{{ bootstrap_admin_password_hash }}"
-        update_password: on_create
+        update_password: always
+        password_lock: false
         groups: "{{ bootstrap_admin_groups | join(',') }}"
         append: true
         create_home: true
@@ -81,7 +82,7 @@
     - name: Configure administrator sudo policy
       ansible.builtin.copy:
         dest: "/etc/sudoers.d/{{ bootstrap_admin_user }}"
-        content: >-
+        content: |
           {{ bootstrap_admin_user }} ALL=(ALL) {{ 'NOPASSWD:' if bootstrap_admin_passwordless_sudo else '' }}ALL
         owner: root
         group: root
