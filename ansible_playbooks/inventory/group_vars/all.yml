@@ -3,6 +3,7 @@
 ansible_become: true
 
 bootstrap_admin_user: ansible
+bootstrap_admin_password_hash: "{{ vault_bootstrap_admin_password_hash | default('') }}"
 bootstrap_admin_shell: /bin/bash
 bootstrap_admin_groups:
   - sudo
