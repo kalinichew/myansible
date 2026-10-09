@@ -1,0 +1,161 @@
+---
+- name: Configure WireGuard mesh interface
+  hosts: debian_servers
+  become: true
+  gather_facts: true
+  serial: 1
+
+  pre_tasks:
+    - name: Verify platform and mesh peer configuration
+      ansible.builtin.assert:
+        that:
+          - ansible_os_family == "Debian"
+          - ansible_distribution in ["Debian", "Ubuntu"]
+          - wireguard_peers | length > 0
+          - (wireguard_peers | selectattr('public_key', 'defined') | list | length) == (wireguard_peers | length)
+          - (wireguard_peers | selectattr('allowed_ips', 'defined') | list | length) == (wireguard_peers | length)
+        fail_msg: "Set wireguard_peers and target Debian/Ubuntu before configuring WireGuard."
+      tags: [always, platform, wireguard]
+
+  handlers:
+    - name: Reload UFW
+      ansible.builtin.service:
+        name: ufw
+        state: reloaded
+      tags: [firewall, service]
+
+    - name: Restart WireGuard interface
+      ansible.builtin.systemd_service:
+        name: "wg-quick@{{ wireguard_interface }}.service"
+        state: restarted
+      tags: [wireguard, service]
+
+  tasks:
+    - name: Install WireGuard packages
+      ansible.builtin.apt:
+        name:
+          - wireguard
+          - wireguard-tools
+        state: present
+        update_cache: true
+        cache_valid_time: 3600
+      tags: [wireguard, packages]
+
+    - name: Ensure WireGuard configuration directory exists
+      ansible.builtin.file:
+        path: /etc/wireguard
+        state: directory
+        owner: root
+        group: root
+        mode: "0700"
+      tags: [wireguard, config]
+
+    - name: Check whether the WireGuard private key already exists
+      ansible.builtin.stat:
+        path: "{{ wireguard_private_key_path }}"
+      register: wireguard_private_key_stat
+      no_log: true
+      tags: [wireguard, keys, config]
+
+    - name: Generate WireGuard private key when missing
+      ansible.builtin.command:
+        argv:
+          - wg
+          - genkey
+      register: wireguard_private_key_generated
+      changed_when: true
+      when: not wireguard_private_key_stat.stat.exists
+      no_log: true
+      tags: [wireguard, keys, config]
+
+    - name: Store generated WireGuard private key
+      ansible.builtin.copy:
+        content: "{{ wireguard_private_key_generated.stdout }}\n"
+        dest: "{{ wireguard_private_key_path }}"
+        owner: root
+        group: root
+        mode: "0600"
+      when: not wireguard_private_key_stat.stat.exists
+      no_log: true
+      tags: [wireguard, keys, config]
+
+    - name: Enforce private key permissions
+      ansible.builtin.file:
+        path: "{{ wireguard_private_key_path }}"
+        state: file
+        owner: root
+        group: root
+        mode: "0600"
+      no_log: true
+      tags: [wireguard, keys, config]
+
+    - name: Read local WireGuard private key
+      ansible.builtin.slurp:
+        src: "{{ wireguard_private_key_path }}"
+      register: wireguard_private_key_file
+      no_log: true
+      tags: [wireguard, keys, config]
+
+    - name: Set private key fact for interface configuration
+      ansible.builtin.set_fact:
+        wireguard_private_key: "{{ wireguard_private_key_file.content | b64decode | trim }}"
+      no_log: true
+      tags: [wireguard, keys, config]
+
+    - name: Configure WireGuard interface and mesh peers
+      ansible.builtin.copy:
+        dest: "/etc/wireguard/{{ wireguard_interface }}.conf"
+        content: |
+          [Interface]
+          Address = {{ wireguard_address }}
+          ListenPort = {{ wireguard_listen_port }}
+          PrivateKey = {{ wireguard_private_key }}
+
+          {% for peer in wireguard_peers %}
+          [Peer]
+          PublicKey = {{ peer.public_key }}
+          AllowedIPs = {{ peer.allowed_ips }}
+          {% if peer.endpoint is defined %}
+          Endpoint = {{ peer.endpoint }}
+          {% endif %}
+          {% if peer.persistent_keepalive is defined %}
+          PersistentKeepalive = {{ peer.persistent_keepalive }}
+          {% endif %}
+
+          {% endfor %}
+        owner: root
+        group: root
+        mode: "0600"
+        validate: "wg-quick strip %s"
+      no_log: true
+      notify: Restart WireGuard interface
+      tags: [wireguard, config, service]
+
+    - name: Install UFW before adding WireGuard firewall rules
+      ansible.builtin.apt:
+        name: ufw
+        state: present
+      tags: [wireguard, firewall, packages]
+
+    - name: Allow SSH port before enabling UFW
+      community.general.ufw:
+        rule: allow
+        port: "{{ security_ssh_port | string }}"
+        proto: tcp
+      notify: Reload UFW
+      tags: [wireguard, firewall, config]
+
+    - name: Allow WireGuard UDP port in UFW
+      community.general.ufw:
+        rule: allow
+        port: "{{ wireguard_listen_port | string }}"
+        proto: udp
+      notify: Reload UFW
+      tags: [wireguard, firewall, config]
+
+    - name: Ensure WireGuard interface is enabled and running
+      ansible.builtin.systemd_service:
+        name: "wg-quick@{{ wireguard_interface }}.service"
+        enabled: true
+        state: started
+      tags: [wireguard, service]
