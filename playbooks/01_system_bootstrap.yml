@@ -110,6 +110,15 @@
         key: "{{ lookup('ansible.builtin.file', bootstrap_ssh_public_key_path) }}"
       tags: [users, ssh]
 
+    - name: Create SSH drop-in directory
+      ansible.builtin.file:
+        path: /etc/ssh/sshd_config.d
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+      tags: [ssh, hardening]
+
     - name: Ensure SSH drop-in directory is included
       ansible.builtin.lineinfile:
         path: /etc/ssh/sshd_config
