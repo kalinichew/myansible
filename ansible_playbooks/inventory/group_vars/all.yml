@@ -83,6 +83,7 @@ postgres_max_connections: 100
 
 # S3 database backups. Prefer instance/task roles over static AWS credentials.
 db_backup_s3_bucket: ""
+db_backup_aws_region: ""
 db_backup_s3_prefix: postgres
 db_backup_schedule: "*-*-* 02:30:00"
 db_backup_local_dir: /var/backups/postgresql
