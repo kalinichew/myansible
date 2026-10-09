@@ -1,0 +1,164 @@
+---
+- name: Configure NGINX reverse proxy and Let's Encrypt
+  hosts: debian_servers
+  become: true
+  gather_facts: true
+
+  pre_tasks:
+    - name: Validate proxy site definitions
+      ansible.builtin.assert:
+        that:
+          - ansible_os_family == "Debian"
+          - ansible_distribution in ["Debian", "Ubuntu"]
+          - nginx_proxy_sites | length > 0
+          - item.server_name is defined
+          - item.upstream_url is defined
+          - item.email is defined
+        fail_msg: "Define server_name, upstream_url, and email for every NGINX proxy site."
+      loop: "{{ nginx_proxy_sites }}"
+      tags: [always, platform, nginx]
+
+  handlers:
+    - name: Reload NGINX
+      ansible.builtin.service:
+        name: nginx
+        state: reloaded
+      tags: [nginx, service]
+
+  tasks:
+    - name: Install NGINX and Certbot packages
+      ansible.builtin.apt:
+        name:
+          - certbot
+          - nginx
+        state: present
+        update_cache: true
+        cache_valid_time: 3600
+      tags: [nginx, certbot, packages]
+
+    - name: Ensure ACME webroot exists
+      ansible.builtin.file:
+        path: "{{ nginx_proxy_webroot }}"
+        state: directory
+        owner: www-data
+        group: www-data
+        mode: "0755"
+      tags: [nginx, certbot, config]
+
+    - name: Remove default NGINX virtual host
+      ansible.builtin.file:
+        path: /etc/nginx/sites-enabled/default
+        state: absent
+      notify: Reload NGINX
+      tags: [nginx, config]
+
+    - name: Install HTTP bootstrap proxy site for ACME validation
+      ansible.builtin.copy:
+        dest: "/etc/nginx/sites-enabled/{{ item.server_name }}.conf"
+        content: |
+          server {
+              listen 80;
+              listen [::]:80;
+              server_name {{ item.server_name }};
+
+              location ^~ /.well-known/acme-challenge/ {
+                  root {{ nginx_proxy_webroot }};
+                  default_type "text/plain";
+              }
+
+              location / {
+                  proxy_pass {{ item.upstream_url }};
+                  proxy_http_version 1.1;
+                  proxy_set_header Host $host;
+                  proxy_set_header X-Real-IP $remote_addr;
+                  proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+                  proxy_set_header X-Forwarded-Proto $scheme;
+              }
+          }
+        owner: root
+        group: root
+        mode: "0644"
+        validate: "nginx -t -c /etc/nginx/nginx.conf"
+      loop: "{{ nginx_proxy_sites }}"
+      notify: Reload NGINX
+      tags: [nginx, config]
+
+    - name: Ensure NGINX is enabled and running for ACME validation
+      ansible.builtin.service:
+        name: nginx
+        enabled: true
+        state: started
+      tags: [nginx, service]
+
+    - name: Request Let's Encrypt certificate through webroot
+      ansible.builtin.command:
+        argv:
+          - certbot
+          - certonly
+          - --webroot
+          - --webroot-path
+          - "{{ nginx_proxy_webroot }}"
+          - --non-interactive
+          - --agree-tos
+          - --email
+          - "{{ item.email }}"
+          - -d
+          - "{{ item.server_name }}"
+        creates: "/etc/letsencrypt/live/{{ item.server_name }}/fullchain.pem"
+      loop: "{{ nginx_proxy_sites }}"
+      register: certbot_request
+      changed_when: certbot_request.rc == 0
+      tags: [nginx, certbot, certificates]
+
+    - name: Install TLS reverse proxy site
+      ansible.builtin.copy:
+        dest: "/etc/nginx/sites-enabled/{{ item.server_name }}.conf"
+        content: |
+          server {
+              listen 80;
+              listen [::]:80;
+              server_name {{ item.server_name }};
+
+              location ^~ /.well-known/acme-challenge/ {
+                  root {{ nginx_proxy_webroot }};
+                  default_type "text/plain";
+              }
+
+              location / {
+                  return 301 https://$host$request_uri;
+              }
+          }
+
+          server {
+              listen 443 ssl;
+              listen [::]:443 ssl;
+              server_name {{ item.server_name }};
+
+              ssl_certificate /etc/letsencrypt/live/{{ item.server_name }}/fullchain.pem;
+              ssl_certificate_key /etc/letsencrypt/live/{{ item.server_name }}/privkey.pem;
+              include /etc/letsencrypt/options-ssl-nginx.conf;
+              ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem;
+
+              location / {
+                  proxy_pass {{ item.upstream_url }};
+                  proxy_http_version 1.1;
+                  proxy_set_header Host $host;
+                  proxy_set_header X-Real-IP $remote_addr;
+                  proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+                  proxy_set_header X-Forwarded-Proto $scheme;
+              }
+          }
+        owner: root
+        group: root
+        mode: "0644"
+        validate: "nginx -t -c /etc/nginx/nginx.conf"
+      loop: "{{ nginx_proxy_sites }}"
+      notify: Reload NGINX
+      tags: [nginx, config, tls]
+
+    - name: Ensure Certbot renewal timer is enabled
+      ansible.builtin.service:
+        name: certbot.timer
+        enabled: true
+        state: started
+      tags: [certbot, service]
