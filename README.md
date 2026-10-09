@@ -1,145 +1,28 @@
-<div align="center">
+# myansible
 
-# 🛠️ myansible
+Набор Ansible playbook для подготовки и эксплуатации серверов Debian и Ubuntu.
 
-**Базовая настройка новых Debian и Ubuntu серверов с помощью Ansible**
+Основная структурированная версия находится в каталоге **[ansible_playbooks/](ansible_playbooks/README.md)**. Запускайте команды из этого каталога: там лежат собственные `ansible.cfg`, inventory, коллекции и playbook.
 
-[![Ansible](https://img.shields.io/badge/Ansible-automation-EE0000?logo=ansible&logoColor=white)](https://www.ansible.com/)
-[![Поддержка](https://img.shields.io/badge/OS-Debian%20%7C%20Ubuntu-A81D33)](#поддерживаемые-системы)
+## Состав
 
-</div>
+- Bootstrap и SSH/UFW/Fail2ban hardening
+- Docker Engine CE и Compose
+- WireGuard mesh и NGINX reverse proxy с Let's Encrypt
+- Node Exporter и Vector
+- PostgreSQL и расписание резервного копирования в S3
+- Обновления, перезагрузки и очистка диска
 
-Этот репозиторий содержит стартовый playbook для подготовки Linux-сервера: задаёт часовой пояс и локаль, устанавливает полезные утилиты, создаёт администратора с доступом по SSH-ключу и включает базовую настройку SSH.
+## Быстрый старт
 
-> ⚠️ Playbook изменяет системные настройки и SSH. Перед запуском убедитесь, что публичный ключ подходит, а подключение по нему работает. Сначала применяйте настройки к одному тестовому серверу.
-
-## ✨ Что настраивается
-
-- Часовой пояс и системная локаль.
-- Обновление кэша APT и установка базовых пакетов.
-- Пользователь-администратор в группе sudo.
-- Публичный SSH-ключ для нового пользователя.
-- Отключение SSH-аутентификации по паролю и входа root по паролю.
-- Ранний SSH drop-in для отключения входа по паролю и входа root по паролю; проверка синтаксиса и резервные копии перед изменением.
-
-## 🧰 Поддерживаемые системы
-
-Playbook рассчитан на **Debian и Ubuntu**. На других системах он завершится до внесения изменений: используются APT, группа sudo и модуль генерации локали для Debian.
-
-## 📋 Требования
-
-На машине, с которой запускается Ansible:
-
-- Python 3 и Ansible.
-- SSH-доступ с правами root или настроенным повышением привилегий.
-- Публичный ключ SSH. По умолчанию ожидается файл ~/.ssh/id_ed25519.pub.
-- Ansible-коллекции из requirements.yml.
-
-## 🚀 Быстрый старт
-
-### 1. Установите коллекции
+Из корня репозитория:
 
 ```bash
-ansible-galaxy collection install -r requirements.yml
-```
-
-### 2. Подготовьте inventory
-
-Скопируйте пример и укажите адрес сервера:
-
-```bash
+cd ansible_playbooks
+ansible-galaxy collection install -r collections/requirements.yml
 cp inventory/hosts.ini.example inventory/hosts.ini
 ```
 
-Пример записи:
+Перед первым bootstrap настройте inventory, публичный SSH-ключ и зашифрованный парольный хеш администратора по инструкции в [README каталога](ansible_playbooks/README.md).
 
-```ini
-[bootstrap]
-my-server ansible_host=203.0.113.10 ansible_user=root
-```
-
-Файл inventory/hosts.ini исключён из Git. Не добавляйте в репозиторий пароли, приватные ключи или другие секреты.
-
-### 3. Проверьте доступ и план изменений
-
-```bash
-ansible bootstrap -m ping
-ansible-playbook playbooks/01_system_bootstrap.yml --check --diff
-```
-
-Режим --check полезен, но не заменяет пробный запуск на отдельном сервере.
-
-### 4. Запустите настройку
-
-```bash
-ansible-playbook playbooks/01_system_bootstrap.yml --limit my-server
-```
-
-Если нужен пароль для SSH-подключения, добавьте -k. Для запроса пароля повышения привилегий используйте -K.
-
-## ⚙️ Переменные
-
-| Переменная | По умолчанию | Назначение |
-| --- | --- | --- |
-| bootstrap_user | work_user | Имя создаваемого администратора |
-| bootstrap_ssh_public_key_path | ~/.ssh/id_ed25519.pub | Путь к публичному ключу на машине с Ansible |
-| bootstrap_timezone | Europe/Moscow | Часовой пояс |
-| bootstrap_locale | en_US.UTF-8 | Генерируемая системная локаль |
-| bootstrap_passwordless_sudo | true | Разрешить sudo без пароля |
-
-Переменные можно переопределить в inventory или через -e. Например, указать другой публичный ключ:
-
-```bash
-ansible-playbook playbooks/01_system_bootstrap.yml \
-  --limit my-server \
-  -e bootstrap_ssh_public_key_path=/home/alex/.ssh/server.pub
-```
-
-### О пароле sudo
-
-По умолчанию новый администратор получает NOPASSWD:ALL, чтобы работать на сервере, где вход настроен только по ключу. Это даёт полные права без повторного запроса пароля. Если пароль пользователя настроен и sudo должен запрашивать его, укажите:
-
-```bash
--e bootstrap_passwordless_sudo=false
-```
-
-## 🔐 Важное про SSH
-
-Playbook сначала устанавливает ключ новому пользователю и только затем отключает вход по SSH-паролю. До запуска убедитесь, что ключ доступен контроллеру. После применения проверьте подключение новым пользователем:
-
-```bash
-ssh work_user@АДРЕС_СЕРВЕРА
-```
-
-Не закрывайте текущую административную SSH-сессию, пока не подтвердите новый вход. Playbook подключает каталог sshd_config.d и создаёт ранний файл 00-ansible-bootstrap.conf, чтобы стандартные более поздние drop-in настройки не отменили эти параметры. Если в каталоге уже есть собственные файлы с именами, сортирующимися раньше 00-ansible-bootstrap.conf, или блоки Match, проверьте эффективную конфигурацию SSH вручную.
-
-## 🗂️ Структура проекта
-
-```text
-.
-├── ansible.cfg
-├── inventory/
-│   └── hosts.ini.example
-├── playbooks/
-│   └── 01_system_bootstrap.yml
-└── requirements.yml
-```
-
-## 🏷️ Теги
-
-Можно запускать отдельные группы задач с параметром --tags:
-
-- system, timezone, locale
-- packages
-- users, sudo
-- ssh, hardening
-
-Например:
-
-```bash
-ansible-playbook playbooks/01_system_bootstrap.yml --limit my-server --tags packages
-```
-
-## 📄 Лицензия
-
-Лицензия пока не указана.
+> Playbook меняют SSH, firewall, системные службы и пакеты. Сначала запускайте их на одном тестовом сервере и проверяйте SSH-доступ до закрытия текущего соединения.
