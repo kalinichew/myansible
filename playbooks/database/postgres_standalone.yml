@@ -1,0 +1,78 @@
+---
+- name: Install and configure standalone PostgreSQL
+  hosts: debian_servers
+  become: true
+  gather_facts: true
+
+  pre_tasks:
+    - name: Validate PostgreSQL platform and application credentials
+      ansible.builtin.assert:
+        that:
+          - ansible_os_family == "Debian"
+          - ansible_distribution in ["Debian", "Ubuntu"]
+          - postgres_app_password | length > 0
+          - postgres_database | length > 0
+          - postgres_role | length > 0
+        fail_msg: "Set the PostgreSQL application role, database, and Vault password before running."
+      no_log: true
+      tags: [always, platform, postgres]
+
+  handlers:
+    - name: Restart PostgreSQL
+      ansible.builtin.service:
+        name: postgresql
+        state: restarted
+      tags: [postgres, service]
+
+  tasks:
+    - name: Install PostgreSQL and Python driver
+      ansible.builtin.apt:
+        name:
+          - postgresql
+          - postgresql-contrib
+          - python3-psycopg2
+        state: present
+        update_cache: true
+        cache_valid_time: 3600
+      tags: [postgres, packages]
+
+    - name: Ensure PostgreSQL service is enabled and running
+      ansible.builtin.service:
+        name: postgresql
+        enabled: true
+        state: started
+      tags: [postgres, service]
+
+    - name: Apply PostgreSQL memory and connection tuning
+      community.postgresql.postgresql_set:
+        name: "{{ item.name }}"
+        value: "{{ item.value }}"
+      become_user: postgres
+      loop:
+        - { name: shared_buffers, value: "{{ postgres_shared_buffers }}" }
+        - { name: effective_cache_size, value: "{{ postgres_effective_cache_size }}" }
+        - { name: work_mem, value: "{{ postgres_work_mem }}" }
+        - { name: maintenance_work_mem, value: "{{ postgres_maintenance_work_mem }}" }
+        - { name: max_connections, value: "{{ postgres_max_connections }}" }
+      notify: Restart PostgreSQL
+      tags: [postgres, config, tuning, service]
+
+    - name: Create application database role
+      community.postgresql.postgresql_user:
+        name: "{{ postgres_role }}"
+        password: "{{ postgres_app_password }}"
+        encrypted: true
+        role_attr_flags: LOGIN
+        state: present
+      become_user: postgres
+      no_log: true
+      tags: [postgres, users, credentials]
+
+    - name: Create application database owned by its role
+      community.postgresql.postgresql_db:
+        name: "{{ postgres_database }}"
+        owner: "{{ postgres_role }}"
+        encoding: UTF-8
+        state: present
+      become_user: postgres
+      tags: [postgres, database, config]
