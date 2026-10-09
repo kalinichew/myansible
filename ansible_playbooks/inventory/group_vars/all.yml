@@ -65,7 +65,6 @@ node_exporter_listen_address: 127.0.0.1
 node_exporter_sha256:
   amd64: b51d8a76aa2a9156a55d501aca6276fae09e262259a5e4e831d2c2222f084e63
   arm64: ad35b605f9954b9f1ffddf5ba054bdc5a98d790b9eae5291e1eeb83f1ecbd0e7
-node_exporter_allowed_source: ""
 
 # Vector log shipper. Token is supplied through Ansible Vault.
 vector_sink_url: ""
