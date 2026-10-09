@@ -1,0 +1,12 @@
+# Local inventory may contain private host details
+inventory/hosts.ini
+inventory/hosts
+hosts.ini
+hosts
+
+# Credentials and Ansible temporary files
+.vault_pass
+.vault/
+*.vault
+*.retry
+.ansible/
