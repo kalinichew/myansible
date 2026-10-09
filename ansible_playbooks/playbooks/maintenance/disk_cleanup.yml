@@ -22,6 +22,8 @@
           - --vacuum-time={{ disk_journal_vacuum_time }}
       register: journal_vacuum
       changed_when: "'freed 0B' not in journal_vacuum.stdout"
+      environment:
+        LC_ALL: C
       tags: [cleanup, journal]
 
     - name: Check whether Docker daemon socket exists
