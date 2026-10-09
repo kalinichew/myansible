@@ -1,0 +1,40 @@
+---
+# This repository targets Debian and Ubuntu hosts.
+ansible_become: true
+
+bootstrap_admin_user: ansible
+bootstrap_admin_shell: /bin/bash
+bootstrap_admin_groups:
+  - sudo
+bootstrap_admin_passwordless_sudo: true
+bootstrap_ssh_public_key_path: "{{ lookup('env', 'HOME') }}/.ssh/id_ed25519.pub"
+bootstrap_timezone: Etc/UTC
+bootstrap_locale: en_US.UTF-8
+bootstrap_base_packages:
+  - ca-certificates
+  - curl
+  - git
+  - htop
+  - jq
+  - less
+  - locales
+  - logrotate
+  - ncdu
+  - rsync
+  - sudo
+  - tmux
+  - unzip
+  - vim
+  - wget
+
+security_ssh_port: 22
+security_ssh_password_authentication: "no"
+security_ssh_permit_root_login: "no"
+security_ssh_max_auth_tries: 3
+security_fail2ban_bantime: 1h
+security_fail2ban_findtime: 10m
+security_fail2ban_maxretry: 5
+security_ufw_allowed_tcp_ports:
+  - 22
+  - 80
+  - 443
