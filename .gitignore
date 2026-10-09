@@ -1,0 +1,10 @@
+# Игнорировать локальные файлы инвентаря
+inventory/hosts.ini
+inventory/hosts
+hosts.ini
+hosts
+
+# Игнорировать временные и зашифрованные файлы Ansible
+*.retry
+.vault_pass
+.ansible/

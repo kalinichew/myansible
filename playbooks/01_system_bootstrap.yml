@@ -1,0 +1,122 @@
+---
+- name: Initial System Bootstrap
+  hosts: all
+  become: true
+  gather_facts: true
+
+  vars:
+    bootstrap_user: "work_user"
+    bootstrap_ssh_public_key: "{{ lookup('file', '/root/.ssh/ssh-ed25519.pub') }}"
+    # Настройки системы
+    bootstrap_timezone: "Europe/Moscow"
+    bootstrap_locale: "en_US.UTF-8"
+    # Базовые системные утилиты
+    bootstrap_packages:
+      - curl
+      - wget
+      - git
+      - htop
+      - tmux
+      - vim
+      - jq
+      - ncdu
+      - ripgrep
+      - net-tools
+      - rsync
+      - ca-certificates
+      - sudo
+
+  handlers:
+    - name: Restart sshd
+      ansible.builtin.service:
+        name: "{{ 'ssh' if ansible_os_family == 'Debian' else 'sshd' }}"
+        state: restarted
+
+  tasks:
+    # =========================================================================
+    # 1. СИСТЕМНЫЕ НАСТРОЙКИ (TIMEZONE & LOCALE)
+    # =========================================================================
+    - name: Set timezone
+      community.general.timezone:
+        name: "{{ bootstrap_timezone }}"
+      tags: [system, timezone]
+
+    - name: Ensure locale is generated
+      community.general.locale_gen:
+        name: "{{ bootstrap_locale }}"
+        state: present
+      tags: [system, locale]
+
+    # =========================================================================
+    # 2. ОБНОВЛЕНИЕ ПАКЕТОВ И УСТАНОВКА УТИЛИТ
+    # =========================================================================
+    - name: Update apt cache
+      ansible.builtin.apt:
+        update_cache: true
+        cache_valid_time: 3600
+      tags: [packages]
+
+    - name: Install essential baseline packages
+      ansible.builtin.apt:
+        name: "{{ bootstrap_packages }}"
+        state: present
+      tags: [packages]
+
+    # =========================================================================
+    # 3. ПОЛЬЗОВАТЕЛЬ И ПРАВА SUDO
+    # =========================================================================
+    - name: Ensure sudo group exists
+      ansible.builtin.group:
+        name: sudo
+        state: present
+      tags: [users]
+
+    - name: Create non-root admin user
+      ansible.builtin.user:
+        name: "{{ bootstrap_user }}"
+        shell: /bin/bash
+        groups: sudo
+        append: true
+        create_home: true
+        state: present
+      tags: [users]
+
+    - name: Configure passwordless sudo for user
+      ansible.builtin.copy:
+        dest: "/etc/sudoers.d/{{ bootstrap_user }}"
+        content: "{{ bootstrap_user }} ALL=(ALL) NOPASSWD:ALL\n"
+        owner: root
+        group: root
+        mode: "0440"
+        validate: "visudo -cf %s"
+      tags: [users, sudo]
+
+    - name: Deploy authorized SSH key for user
+      ansible.posix.authorized_key:
+        user: "{{ bootstrap_user }}"
+        state: present
+        key: "{{ bootstrap_ssh_public_key }}"
+      tags: [users, ssh]
+
+    # =========================================================================
+    # 4. БАЗОВОЕ ХАРДЕНИНГ-НАСТРОЙКИ SSHD
+    # =========================================================================
+    - name: Disable SSH password authentication
+      ansible.builtin.lineinfile:
+        path: /etc/ssh/sshd_config
+        regexp: "^(#)?PasswordAuthentication"
+        line: "PasswordAuthentication no"
+        state: present
+        validate: "/usr/sbin/sshd -t -f %s"
+      notify: Restart sshd
+      tags: [ssh, hardening]
+
+    - name: Disable SSH root password login (permit keys only)
+      ansible.builtin.lineinfile:
+        path: /etc/ssh/sshd_config
+        regexp: "^(#)?PermitRootLogin"
+        line: "PermitRootLogin prohibit-password"
+        state: present
+        validate: "/usr/sbin/sshd -t -f %s"
+      notify: Restart sshd
+      tags: [ssh, hardening]
