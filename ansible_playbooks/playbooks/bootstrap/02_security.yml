@@ -126,13 +126,21 @@
         state: started
       tags: [fail2ban, service]
 
-    - name: Allow required incoming TCP ports before enabling UFW
+    - name: Add SSH allow rule before other firewall rules
+      community.general.ufw:
+        rule: allow
+        port: "{{ security_ssh_port | string }}"
+        proto: tcp
+        state: enabled
+      notify: Reload UFW
+      tags: [firewall, ssh, config]
+
+    - name: Allow other required incoming TCP ports
       community.general.ufw:
         rule: allow
         port: "{{ item | string }}"
         proto: tcp
-        state: enabled
-      loop: "{{ security_ufw_allowed_tcp_ports }}"
+      loop: "{{ security_ufw_allowed_tcp_ports | map('string') | reject('equalto', security_ssh_port | string) | list }}"
       notify: Reload UFW
       tags: [firewall, config]
 
