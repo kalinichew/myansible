@@ -1,0 +1,166 @@
+---
+- name: Harden SSH and configure host firewall
+  hosts: debian_servers
+  become: true
+  gather_facts: true
+  serial: 1
+
+  pre_tasks:
+    - name: Verify supported operating system
+      ansible.builtin.assert:
+        that:
+          - ansible_os_family == "Debian"
+          - ansible_distribution in ["Debian", "Ubuntu"]
+        fail_msg: "This playbook supports Debian and Ubuntu only."
+      tags: [always, platform]
+
+    - name: Verify SSH port is allowed before firewall activation
+      ansible.builtin.assert:
+        that:
+          - security_ssh_port | int in (security_ufw_allowed_tcp_ports | map('int') | list)
+          - security_ssh_port | int > 0
+          - security_ssh_port | int < 65536
+        fail_msg: >-
+          The configured SSH port must be included in
+          security_ufw_allowed_tcp_ports before enabling UFW.
+      tags: [always, firewall, ssh]
+
+    - name: Confirm bootstrap administrator is configured
+      ansible.builtin.assert:
+        that:
+          - bootstrap_admin_user | length > 0
+          - bootstrap_admin_user != "root"
+        fail_msg: "Run 01_system.yml first and configure a non-root administrator."
+      tags: [always, ssh, users]
+
+  handlers:
+    - name: Restart SSH service
+      ansible.builtin.service:
+        name: ssh
+        state: restarted
+      tags: [ssh, service]
+
+    - name: Restart fail2ban
+      ansible.builtin.service:
+        name: fail2ban
+        state: restarted
+      tags: [fail2ban, service]
+
+    - name: Reload UFW
+      ansible.builtin.service:
+        name: ufw
+        state: reloaded
+      tags: [firewall, service]
+
+  tasks:
+    - name: Install SSH hardening and firewall packages
+      ansible.builtin.apt:
+        name:
+          - fail2ban
+          - python3-systemd
+          - ufw
+        state: present
+        update_cache: true
+        cache_valid_time: 3600
+      tags: [packages, ssh, fail2ban, firewall]
+
+    - name: Ensure SSH drop-in directory exists
+      ansible.builtin.file:
+        path: /etc/ssh/sshd_config.d
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+      tags: [ssh, config]
+
+    - name: Include SSH drop-in configuration directory
+      ansible.builtin.lineinfile:
+        path: /etc/ssh/sshd_config
+        regexp: "^\\s*Include\\s+/etc/ssh/sshd_config\\.d/\\*\\.conf\\s*$"
+        line: "Include /etc/ssh/sshd_config.d/*.conf"
+        insertbefore: BOF
+        validate: "/usr/sbin/sshd -t -f %s"
+        backup: true
+      notify: Restart SSH service
+      tags: [ssh, config, service]
+
+    - name: Configure SSH security policy
+      ansible.builtin.copy:
+        dest: /etc/ssh/sshd_config.d/00-ansible-hardening.conf
+        content: |
+          Port {{ security_ssh_port }}
+          PubkeyAuthentication yes
+          PasswordAuthentication {{ security_ssh_password_authentication }}
+          KbdInteractiveAuthentication no
+          PermitRootLogin {{ security_ssh_permit_root_login }}
+          MaxAuthTries {{ security_ssh_max_auth_tries }}
+        owner: root
+        group: root
+        mode: "0644"
+        validate: "/usr/sbin/sshd -t -f %s"
+        backup: true
+      notify: Restart SSH service
+      tags: [ssh, config, service]
+
+    - name: Configure fail2ban SSH jail
+      ansible.builtin.copy:
+        dest: /etc/fail2ban/jail.d/sshd.local
+        content: |
+          [sshd]
+          enabled = true
+          port = {{ security_ssh_port }}
+          backend = systemd
+          bantime = {{ security_fail2ban_bantime }}
+          findtime = {{ security_fail2ban_findtime }}
+          maxretry = {{ security_fail2ban_maxretry }}
+        owner: root
+        group: root
+        mode: "0644"
+      notify: Restart fail2ban
+      tags: [fail2ban, config, service]
+
+    - name: Ensure fail2ban is enabled and running
+      ansible.builtin.service:
+        name: fail2ban
+        enabled: true
+        state: started
+      tags: [fail2ban, service]
+
+    - name: Add SSH allow rule before other firewall rules
+      community.general.ufw:
+        rule: allow
+        port: "{{ security_ssh_port | string }}"
+        proto: tcp
+        state: enabled
+      notify: Reload UFW
+      tags: [firewall, ssh, config]
+
+    - name: Allow other required incoming TCP ports
+      community.general.ufw:
+        rule: allow
+        port: "{{ item | string }}"
+        proto: tcp
+      loop: "{{ security_ufw_allowed_tcp_ports | map('string') | reject('equalto', security_ssh_port | string) | list }}"
+      notify: Reload UFW
+      tags: [firewall, config]
+
+    - name: Set default incoming firewall policy to deny
+      community.general.ufw:
+        direction: incoming
+        policy: deny
+      notify: Reload UFW
+      tags: [firewall, config]
+
+    - name: Set default outgoing firewall policy to allow
+      community.general.ufw:
+        direction: outgoing
+        policy: allow
+      notify: Reload UFW
+      tags: [firewall, config]
+
+    - name: Enable UFW with low-volume logging
+      community.general.ufw:
+        state: enabled
+        logging: low
+      notify: Reload UFW
+      tags: [firewall, service]
