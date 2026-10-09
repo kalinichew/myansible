@@ -1,0 +1,10 @@
+# Copy to hosts.ini and replace the example address and SSH user.
+# Keep hosts.ini private; it is excluded from Git.
+[bootstrap]
+server1 ansible_host=203.0.113.10 ansible_user=root
+
+[debian_servers:children]
+bootstrap
+
+[debian_servers:vars]
+ansible_python_interpreter=/usr/bin/python3
