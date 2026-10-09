@@ -1,0 +1,47 @@
+---
+- name: Read-only Kubernetes cluster health summary
+  hosts: localhost
+  connection: local
+  gather_facts: false
+
+  tasks:
+    - name: Read cluster nodes
+      kubernetes.core.k8s_info:
+        kubeconfig: "{{ k8s_kubeconfig }}"
+        api_version: v1
+        kind: Node
+      register: cluster_health_nodes
+      tags: [diagnostics, kubernetes, nodes]
+
+    - name: Read pods across namespaces
+      kubernetes.core.k8s_info:
+        kubeconfig: "{{ k8s_kubeconfig }}"
+        api_version: v1
+        kind: Pod
+      register: cluster_health_pods
+      tags: [diagnostics, kubernetes, pods]
+
+    - name: Read warning events across namespaces
+      kubernetes.core.k8s_info:
+        kubeconfig: "{{ k8s_kubeconfig }}"
+        api_version: v1
+        kind: Event
+        field_selectors:
+          - type=Warning
+      register: cluster_health_warnings
+      tags: [diagnostics, kubernetes, events]
+
+    - name: Summarize cluster state and non-running pods
+      ansible.builtin.debug:
+        msg:
+          nodes_seen: "{{ cluster_health_nodes.resources | length }}"
+          pods_seen: "{{ cluster_health_pods.resources | length }}"
+          pods_not_running: >-
+            {{ cluster_health_pods.resources
+               | rejectattr('status.phase', 'equalto', 'Running')
+               | rejectattr('status.phase', 'equalto', 'Succeeded')
+               | map(attribute='metadata.name') | list }}
+          warning_events: >-
+            {{ cluster_health_warnings.resources
+               | map(attribute='metadata.name') | list }}
+      tags: [diagnostics, kubernetes, report]

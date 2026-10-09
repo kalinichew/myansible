@@ -1,0 +1,45 @@
+---
+# Kubernetes modules use the controller's kubeconfig unless overridden.
+k8s_kubeconfig: "{{ lookup('ansible.builtin.env', 'KUBECONFIG') | default(lookup('ansible.builtin.env', 'HOME') ~ '/.kube/config', true) }}"
+
+# AWX Operator Helm chart is pinned; update deliberately after reviewing release notes.
+awx_namespace: awx
+awx_operator_release_name: awx-operator
+awx_operator_chart_version: "3.2.1"
+awx_name: awx
+awx_storage_class: ""
+awx_postgres_storage_size: 20Gi
+awx_projects_storage_size: 10Gi
+awx_admin_password: "{{ vault_awx_admin_password | default('') }}"
+awx_secret_key: "{{ vault_awx_secret_key | default('') }}"
+
+# Strimzi-managed Kafka: separate controller and broker pools, persistent volumes,
+# internal TLS + SCRAM-SHA-512 listener. Configure a storage class before deployment.
+kafka_namespace: kafka
+kafka_operator_release_name: strimzi-kafka-operator
+kafka_operator_chart_version: "1.2.0"
+kafka_cluster_name: events
+kafka_version: "4.2.1"
+kafka_storage_class: ""
+kafka_controller_replicas: 3
+kafka_broker_replicas: 3
+kafka_controller_storage_size: 20Gi
+kafka_broker_storage_size: 100Gi
+kafka_topic_name: events
+kafka_topic_partitions: 3
+kafka_topic_retention_ms: "604800000"
+kafka_app_user: app-user
+
+# Jenkins on Kubernetes: single-controller baseline with persistent home and no
+# public Service. Use an ingress/reverse proxy with TLS in front of ClusterIP.
+jenkins_namespace: jenkins
+jenkins_name: jenkins
+jenkins_image: "jenkins/jenkins:2.580.1-jdk21"
+jenkins_storage_class: ""
+jenkins_storage_size: 50Gi
+jenkins_admin_user: admin
+jenkins_admin_password: "{{ vault_jenkins_admin_password | default('') }}"
+jenkins_cpu_request: 500m
+jenkins_cpu_limit: "2"
+jenkins_memory_request: 2Gi
+jenkins_memory_limit: 4Gi

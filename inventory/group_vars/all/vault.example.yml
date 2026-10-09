@@ -1,0 +1,9 @@
+---
+# Copy to vault.yml, replace every placeholder, then encrypt with ansible-vault.
+# Never put actual secrets in this example file.
+vault_bootstrap_admin_password_hash: ""
+vault_postgres_app_password: "REPLACE_WITH_STRONG_PASSWORD"
+vault_vector_sink_auth_token: "REPLACE_WITH_SINK_TOKEN"
+vault_awx_admin_password: "REPLACE_WITH_STRONG_PASSWORD"
+vault_awx_secret_key: "REPLACE_WITH_RANDOM_SECRET_KEY_AT_LEAST_32_CHARS"
+vault_jenkins_admin_password: "REPLACE_WITH_STRONG_PASSWORD"
