@@ -38,3 +38,60 @@ security_ufw_allowed_tcp_ports:
   - 22
   - 80
   - 443
+
+# Docker Engine
+docker_admin_users:
+  - "{{ bootstrap_admin_user }}"
+docker_daemon_log_max_size: 50m
+docker_daemon_log_max_file: "5"
+docker_daemon_live_restore: true
+
+# WireGuard
+wireguard_interface: wg0
+wireguard_address: 10.10.0.1/24
+wireguard_listen_port: 51820
+wireguard_private_key_path: /etc/wireguard/privatekey
+wireguard_peers: []
+
+# NGINX reverse proxy. Define one entry per public hostname.
+nginx_proxy_sites: []
+nginx_proxy_webroot: /var/www/letsencrypt
+
+# Node Exporter (official upstream release)
+node_exporter_version: 1.12.1
+node_exporter_port: 9100
+node_exporter_listen_address: 0.0.0.0
+node_exporter_sha256:
+  amd64: b51d8a76aa2a9156a55d501aca6276fae09e262259a5e4e831d2c2222f084e63
+  arm64: ad35b605f9954b9f1ffddf5ba054bdc5a98d790b9eae5291e1eeb83f1ecbd0e7
+node_exporter_allowed_source: ""
+
+# Vector log shipper. Token is supplied through Ansible Vault.
+vector_sink_url: ""
+vector_sink_auth_token: "{{ vault_vector_sink_auth_token | default('') }}"
+vector_data_dir: /var/lib/vector
+
+# PostgreSQL
+postgres_version: "16"
+postgres_database: appdb
+postgres_role: appuser
+postgres_app_password: "{{ vault_postgres_app_password | default('') }}"
+postgres_shared_buffers: 256MB
+postgres_effective_cache_size: 1GB
+postgres_work_mem: 8MB
+postgres_maintenance_work_mem: 128MB
+postgres_max_connections: 100
+
+# S3 database backups. Prefer instance/task roles over static AWS credentials.
+db_backup_s3_bucket: ""
+db_backup_s3_prefix: postgres
+db_backup_schedule: "*-*-* 02:30:00"
+db_backup_local_dir: /var/backups/postgresql
+db_backup_retention_days: 7
+db_backup_zstd_level: 6
+
+# Maintenance
+maintenance_reboot_if_required: true
+maintenance_reboot_timeout: 900
+disk_journal_vacuum_time: 14d
+docker_prune_until: 168h
