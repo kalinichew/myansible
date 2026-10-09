@@ -12,10 +12,18 @@
           - ansible_os_family == "Debian"
           - ansible_distribution in ["Debian", "Ubuntu"]
           - wireguard_peers | length > 0
+          - wireguard_peers | selectattr('public_key', 'defined') | list | length == wireguard_peers | length
+          - wireguard_peers | selectattr('allowed_ips', 'defined') | list | length == wireguard_peers | length
         fail_msg: "Set wireguard_peers and target Debian/Ubuntu before configuring WireGuard."
       tags: [always, platform, wireguard]
 
   handlers:
+    - name: Reload UFW
+      ansible.builtin.service:
+        name: ufw
+        state: reloaded
+      tags: [firewall, service]
+
     - name: Restart WireGuard interface
       ansible.builtin.systemd_service:
         name: "wg-quick@{{ wireguard_interface }}.service"
