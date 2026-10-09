@@ -50,11 +50,32 @@
         mode: "0700"
       tags: [wireguard, config]
 
-    - name: Generate WireGuard private key once
-      ansible.builtin.shell: "umask 077 && wg genkey > {{ wireguard_private_key_path }}"
-      args:
-        creates: "{{ wireguard_private_key_path }}"
+    - name: Check whether the WireGuard private key already exists
+      ansible.builtin.stat:
+        path: "{{ wireguard_private_key_path }}"
+      register: wireguard_private_key_stat
+      no_log: true
+      tags: [wireguard, keys, config]
+
+    - name: Generate WireGuard private key when missing
+      ansible.builtin.command:
+        argv:
+          - wg
+          - genkey
+      register: wireguard_private_key_generated
       changed_when: true
+      when: not wireguard_private_key_stat.stat.exists
+      no_log: true
+      tags: [wireguard, keys, config]
+
+    - name: Store generated WireGuard private key
+      ansible.builtin.copy:
+        content: "{{ wireguard_private_key_generated.stdout }}\n"
+        dest: "{{ wireguard_private_key_path }}"
+        owner: root
+        group: root
+        mode: "0600"
+      when: not wireguard_private_key_stat.stat.exists
       no_log: true
       tags: [wireguard, keys, config]
 
