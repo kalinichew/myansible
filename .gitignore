@@ -1,10 +1,10 @@
-# Игнорировать локальные файлы инвентаря
+# Локальные inventory могут содержать адреса и имена серверов
 inventory/hosts.ini
 inventory/hosts
 hosts.ini
 hosts
 
-# Игнорировать временные и зашифрованные файлы Ansible
+# Временные и секретные файлы Ansible
 *.retry
 .vault_pass
 .ansible/
