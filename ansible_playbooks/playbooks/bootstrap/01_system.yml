@@ -1,0 +1,94 @@
+---
+- name: Configure base system and administrator
+  hosts: debian_servers
+  become: true
+  gather_facts: true
+
+  pre_tasks:
+    - name: Verify supported operating system
+      ansible.builtin.assert:
+        that:
+          - ansible_os_family == "Debian"
+          - ansible_distribution in ["Debian", "Ubuntu"]
+        fail_msg: "This playbook supports Debian and Ubuntu only."
+      tags: [always, platform]
+
+    - name: Verify administrator is not root
+      ansible.builtin.assert:
+        that:
+          - bootstrap_admin_user | length > 0
+          - bootstrap_admin_user != "root"
+          - bootstrap_admin_groups | length > 0
+        fail_msg: "Set a non-root bootstrap_admin_user and at least one admin group."
+      tags: [always, users]
+
+    - name: Verify SSH public key exists on the Ansible controller
+      ansible.builtin.assert:
+        that:
+          - lookup('ansible.builtin.file', bootstrap_ssh_public_key_path, errors='ignore') | trim | length > 0
+        fail_msg: >-
+          No public key was found at {{ bootstrap_ssh_public_key_path }}.
+          Set bootstrap_ssh_public_key_path to an existing .pub file.
+      become: false
+      run_once: true
+      tags: [always, ssh, users]
+
+  tasks:
+    - name: Refresh APT package cache
+      ansible.builtin.apt:
+        update_cache: true
+        cache_valid_time: 3600
+      tags: [packages, apt]
+
+    - name: Install base system utilities
+      ansible.builtin.apt:
+        name: "{{ bootstrap_base_packages }}"
+        state: present
+      tags: [packages, apt]
+
+    - name: Set system timezone
+      community.general.timezone:
+        name: "{{ bootstrap_timezone }}"
+      tags: [config, timezone]
+
+    - name: Generate configured system locale
+      community.general.locale_gen:
+        name: "{{ bootstrap_locale }}"
+        state: present
+      tags: [config, locale]
+
+    - name: Ensure administrator groups exist
+      ansible.builtin.group:
+        name: "{{ item }}"
+        state: present
+      loop: "{{ bootstrap_admin_groups }}"
+      tags: [users, config]
+
+    - name: Create non-root administrator
+      ansible.builtin.user:
+        name: "{{ bootstrap_admin_user }}"
+        shell: "{{ bootstrap_admin_shell }}"
+        groups: "{{ bootstrap_admin_groups | join(',') }}"
+        append: true
+        create_home: true
+        state: present
+      tags: [users, config]
+
+    - name: Configure administrator sudo policy
+      ansible.builtin.copy:
+        dest: "/etc/sudoers.d/{{ bootstrap_admin_user }}"
+        content: >-
+          {{ bootstrap_admin_user }} ALL=(ALL) {{ 'NOPASSWD:' if bootstrap_admin_passwordless_sudo else '' }}ALL
+        owner: root
+        group: root
+        mode: "0440"
+        validate: "visudo -cf %s"
+      tags: [users, sudo, config]
+
+    - name: Install administrator SSH public key
+      ansible.posix.authorized_key:
+        user: "{{ bootstrap_admin_user }}"
+        state: present
+        key: "{{ lookup('ansible.builtin.file', bootstrap_ssh_public_key_path) }}"
+        exclusive: false
+      tags: [users, ssh, config]
