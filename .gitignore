@@ -1,10 +1,12 @@
-# Локальные inventory могут содержать адреса и имена серверов
+# Local inventory may contain private host details
 inventory/hosts.ini
 inventory/hosts
 hosts.ini
 hosts
 
-# Временные и секретные файлы Ansible
-*.retry
+# Credentials and Ansible temporary files
 .vault_pass
+.vault/
+*.vault
+*.retry
 .ansible/
