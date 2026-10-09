@@ -69,6 +69,21 @@
         update_cache: true
       tags: [vector, packages]
 
+    - name: Ensure Docker group exists for Docker log access
+      ansible.builtin.group:
+        name: docker
+        state: present
+      tags: [vector, users, docker]
+
+    - name: Ensure Vector systemd drop-in directory exists
+      ansible.builtin.file:
+        path: /etc/systemd/system/vector.service.d
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+      tags: [vector, config, service]
+
     - name: Add Vector service account to log-reading groups
       ansible.builtin.user:
         name: vector
