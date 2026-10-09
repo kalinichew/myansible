@@ -66,9 +66,9 @@ ansible-playbook playbooks/bootstrap/02_security.yml --limit server1
 
 - Проверяет ОС и наличие SSH-ключа до изменений.
 - Обновляет кэш APT, устанавливает базовую оснастку, задаёт UTC и локаль.
-- Создаёт отдельного администратора, устанавливает его публичный ключ и создаёт sudoers-файл с проверкой через `visudo`.
+- Создаёт отдельного администратора с заданным парольным хешем, устанавливает его публичный ключ и создаёт sudoers-файл с проверкой через `visudo`.
 
-По умолчанию `bootstrap_admin_passwordless_sudo: true`: это позволяет ключевому администратору пользоваться sudo без пароля. Это широкие привилегии — выдавайте их только доверенным пользователям и меняйте значение, если для вашей среды настроен парольный sudo.
+Перед первым запуском задайте `vault_bootstrap_admin_password_hash` в зашифрованном Vault-файле. Укажите SHA-512/yescrypt хеш, а не открытый пароль; пустое значение остановит playbook до любых изменений. По умолчанию `bootstrap_admin_passwordless_sudo: true`: это позволяет ключевому администратору пользоваться sudo без пароля. Это широкие привилегии — выдавайте их только доверенным пользователям и меняйте значение, если для вашей среды настроен парольный sudo.
 
 ### 02_security.yml
 
@@ -156,6 +156,7 @@ ansible-vault create inventory/group_vars/vault.yml
 Пример содержимого:
 
 ```yaml
+vault_bootstrap_admin_password_hash: "SHA512_OR_YESCRYPT_HASH"
 vault_postgres_app_password: "GENERATE_AND_REPLACE"
 vault_vector_sink_auth_token: "GENERATE_AND_REPLACE"
 ```
