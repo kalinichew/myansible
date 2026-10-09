@@ -120,8 +120,6 @@
           - "{{ item.server_name }}"
         creates: "/etc/letsencrypt/live/{{ item.server_name }}/fullchain.pem"
       loop: "{{ nginx_proxy_sites }}"
-      register: certbot_request
-      changed_when: certbot_request.rc == 0
       tags: [nginx, certbot, certificates]
 
     - name: Install TLS reverse proxy site
