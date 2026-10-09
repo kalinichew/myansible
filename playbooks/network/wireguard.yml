@@ -1,6 +1,6 @@
 ---
 - name: Configure WireGuard mesh interface
-  hosts: debian_servers
+  hosts: all
   become: true
   gather_facts: true
   serial: 1

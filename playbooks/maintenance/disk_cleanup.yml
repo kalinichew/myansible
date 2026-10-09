@@ -1,6 +1,6 @@
 ---
 - name: Clean old journals, Docker artifacts, and obsolete packages
-  hosts: debian_servers
+  hosts: all
   become: true
   gather_facts: true
   serial: 1
@@ -42,15 +42,16 @@
           dangling: false
           until: "{{ docker_prune_until }}"
         builder_cache: true
-        builder_cache_filters:
-          until: "{{ docker_prune_until }}"
       when: docker_socket.stat.exists
       tags: [cleanup, docker]
 
-    - name: Remove obsolete packages and cached package archives
+    - name: Autoremove obsolete packages and purge configuration files
       ansible.builtin.apt:
         autoremove: true
         purge: true
-        autoclean: true
-        clean: true
       tags: [cleanup, packages, kernels]
+
+    - name: Clean apt cache
+      ansible.builtin.apt:
+        clean: true
+      tags: [cleanup, packages]

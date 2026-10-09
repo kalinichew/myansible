@@ -1,6 +1,6 @@
 ---
 - name: Install and configure Vector log shipper
-  hosts: debian_servers
+  hosts: all
   become: true
   gather_facts: true
 

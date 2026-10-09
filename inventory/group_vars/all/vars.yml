@@ -2,13 +2,13 @@
 # This repository targets Debian and Ubuntu hosts.
 ansible_become: true
 
-bootstrap_admin_user: ansible
+bootstrap_admin_user: test
 bootstrap_admin_password_hash: "{{ vault_bootstrap_admin_password_hash | default('') }}"
 bootstrap_admin_shell: /bin/bash
 bootstrap_admin_groups:
   - sudo
 bootstrap_admin_passwordless_sudo: true
-bootstrap_ssh_public_key_path: "{{ lookup('env', 'HOME') }}/.ssh/id_ed25519.pub"
+bootstrap_ssh_public_key_path: "/root/.ssh/ssh-ed25519.pub"
 bootstrap_timezone: Etc/UTC
 bootstrap_locale: en_US.UTF-8
 bootstrap_base_packages:

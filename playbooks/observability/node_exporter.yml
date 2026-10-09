@@ -1,6 +1,6 @@
 ---
 - name: Install Prometheus Node Exporter as a systemd service
-  hosts: debian_servers
+  hosts: all
   become: true
   gather_facts: true
 

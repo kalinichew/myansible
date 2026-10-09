@@ -1,6 +1,6 @@
 ---
 - name: Configure NGINX reverse proxy and Let's Encrypt
-  hosts: debian_servers
+  hosts: all
   become: true
   gather_facts: true
 

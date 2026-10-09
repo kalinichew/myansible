@@ -1,22 +1,43 @@
 # myansible
 
-Идемпотентные Ansible playbook для подготовки и эксплуатации серверов Debian и Ubuntu. В репозитории одна рабочая структура: `inventory/`, `collections/` и `playbooks/` находятся в корне. Команды ниже выполняются из корня репозитория.
+Набор Ansible playbook для подготовки и обслуживания серверов Debian и Ubuntu. В репозитории собраны базовая настройка, SSH и firewall hardening, Docker, сетевые сервисы, мониторинг, PostgreSQL, резервное копирование и обслуживание.
 
-> **Сначала проверьте на тестовом сервере.** Playbook безопасности меняет SSH и включает UFW, а playbook обслуживания может перезагрузить хост. Перед запуском убедитесь, что SSH-порт разрешён и доступ по ключу работает.
+> [!WARNING]
+> Playbook применяют изменения к реальным серверам: меняют SSH и firewall, ставят и перезапускают службы, обновляют пакеты и могут перезагрузить систему. Начинайте с тестового хоста, используйте --limit и не закрывайте текущую SSH-сессию до проверки нового входа.
+
+## Возможности
+
+| Раздел | Playbook | Что делает |
+|---|---|---|
+| Bootstrap | playbooks/bootstrap/system.yml | Обновляет APT, ставит базовые утилиты, устанавливает UTC и локаль, создаёт администратора с sudo и SSH-ключом |
+| Security | playbooks/bootstrap/security.yml | Отключает SSH-вход по паролю и root, настраивает Fail2ban и UFW |
+| Docker | playbooks/docker/docker_engine.yml | Устанавливает Docker CE и Compose plugin, задаёт ротацию логов |
+| Сеть | playbooks/network/wireguard.yml | Создаёт интерфейс WireGuard и peer-конфигурацию |
+| Сеть | playbooks/network/nginx_proxy.yml | Настраивает NGINX reverse proxy и сертификаты Let's Encrypt |
+| Мониторинг | playbooks/observability/node_exporter.yml | Устанавливает Node Exporter как systemd-сервис |
+| Мониторинг | playbooks/observability/vector_shipper.yml | Отправляет journald и Docker-логи во внешний HTTPS sink |
+| База данных | playbooks/database/postgres_standalone.yml | Устанавливает PostgreSQL, настраивает память и создаёт роль/базу |
+| Резервное копирование | playbooks/database/db_backup_s3.yml | Планирует pg_dump, zstd-сжатие и загрузку в S3 через systemd timer |
+| Обслуживание | playbooks/maintenance/update_all.yml | Обновляет пакеты по одному серверу и перезагружает хост при необходимости |
+| Обслуживание | playbooks/maintenance/disk_cleanup.yml | Ограничивает размер journal, чистит Docker-объекты и APT-кэш |
 
 ## Структура
 
-```text
-myansible/
+~~~text
+.
 ├── ansible.cfg
-├── collections/requirements.yml
+├── collections/
+│   └── requirements.yml
 ├── inventory/
 │   ├── hosts.ini.example
-│   └── group_vars/all.yml
+│   └── group_vars/
+│       └── all/
+│           ├── vars.yml
+│           └── vault.yml
 └── playbooks/
     ├── bootstrap/
-    │   ├── 01_system.yml
-    │   └── 02_security.yml
+    │   ├── system.yml
+    │   └── security.yml
     ├── docker/docker_engine.yml
     ├── network/
     │   ├── wireguard.yml
@@ -30,144 +51,213 @@ myansible/
     └── maintenance/
         ├── update_all.yml
         └── disk_cleanup.yml
-```
+~~~
 
-## Подготовка
+Файл ansible.cfg по умолчанию использует inventory/hosts.ini. Общие настройки находятся в inventory/group_vars/all/vars.yml, а чувствительные значения — в зашифрованном inventory/group_vars/all/vault.yml. Все команды ниже запускаются из корня репозитория.
 
-Установите Ansible на управляющей машине и выполняйте команды из корня репозитория:
+## 1. Подготовьте управляющую машину
 
-```bash
+Для запуска нужен Ansible на управляющей машине и SSH-доступ к целевому серверу. На Windows используйте WSL либо другую Linux-машину как управляющую систему.
+
+Установите требуемые коллекции:
+
+~~~bash
 ansible-galaxy collection install -r collections/requirements.yml
+~~~
+
+Скопируйте шаблон inventory и отредактируйте его:
+
+~~~bash
 cp inventory/hosts.ini.example inventory/hosts.ini
-```
+~~~
 
-Отредактируйте `inventory/hosts.ini`: укажите адреса серверов и начальную SSH-учётную запись. Локальный inventory исключён из Git. Подготовьте публичный ключ на управляющей машине; по умолчанию используется `~/.ssh/id_ed25519.pub`.
+Для PowerShell используйте:
 
-Проверьте связь и выполните базовую настройку на одном хосте:
+~~~powershell
+Copy-Item inventory/hosts.ini.example inventory/hosts.ini
+~~~
 
-```bash
-ansible debian_servers -m ansible.builtin.ping --limit server1
-ansible-playbook playbooks/bootstrap/01_system.yml --limit server1 --check --diff
-ansible-playbook playbooks/bootstrap/01_system.yml --limit server1
-```
+В inventory замените примерный адрес 203.0.113.10 на адрес сервера, а ansible_user — на начальную SSH-учётную запись. Шаблон использует root только для первичной настройки. Локальный hosts.ini исключён из Git и не должен публиковаться.
 
-Далее запускайте нужные playbook явно и небольшими партиями. Например:
+Проверьте, что Ansible видит сервер:
 
-```bash
-ansible-playbook playbooks/bootstrap/02_security.yml --limit server1 --check --diff
-ansible-playbook playbooks/bootstrap/02_security.yml --limit server1
-```
+~~~bash
+ansible all -m ansible.builtin.ping
+~~~
 
-Все playbook рассчитаны на группу `debian_servers`. Пример inventory включает в неё группу `bootstrap`.
+Если управляющая машина использует нестандартный SSH-ключ, задайте путь к публичному ключу в inventory/group_vars/all/vars.yml через bootstrap_ssh_public_key_path. Это путь к файлу .pub на управляющей машине, не на сервере.
 
-## Bootstrap и безопасность
+## 2. Настройте значения и секреты
 
-### 01_system.yml
+### Обычные параметры
 
-- Проверяет ОС и наличие SSH-ключа до изменений.
-- Обновляет кэш APT, устанавливает базовую оснастку, задаёт UTC и локаль.
-- Создаёт отдельного администратора с заданным парольным хешем, устанавливает его публичный ключ и создаёт sudoers-файл с проверкой через `visudo`.
+Редактируйте inventory/group_vars/all/vars.yml. Значения из этого файла применяются ко всем серверам. Для отдельных узлов можно создать host_vars/<имя_хоста>.yml или переопределить переменные через командную строку.
 
-Перед первым запуском задайте `vault_bootstrap_admin_password_hash` в зашифрованном Vault-файле. Укажите SHA-512/yescrypt хеш, а не открытый пароль; пустое значение остановит playbook до любых изменений. По умолчанию `bootstrap_admin_passwordless_sudo: true`: это позволяет ключевому администратору пользоваться sudo без пароля. Это широкие привилегии — выдавайте их только доверенным пользователям и меняйте значение, если для вашей среды настроен парольный sudo.
+Основные группы настроек:
 
-### 02_security.yml
+| Переменные | Назначение |
+|---|---|
+| bootstrap_admin_user, bootstrap_admin_groups, bootstrap_admin_shell | Имя и группы нового администратора. Поменяйте демонстрационное значение test на своё |
+| bootstrap_admin_passwordless_sudo | Разрешает sudo без пароля; включено по умолчанию |
+| bootstrap_ssh_public_key_path | Путь к публичному SSH-ключу на управляющей машине |
+| bootstrap_timezone, bootstrap_locale, bootstrap_base_packages | Часовой пояс, локаль и базовый набор пакетов |
+| security_ssh_port, security_ssh_password_authentication, security_ssh_permit_root_login, security_ssh_max_auth_tries | Политика SSH |
+| security_fail2ban_bantime, security_fail2ban_findtime, security_fail2ban_maxretry | Порог блокировки Fail2ban |
+| security_ufw_allowed_tcp_ports | Разрешённые входящие TCP-порты. По умолчанию 22, 80 и 443 |
+| docker_admin_users, docker_daemon_log_max_size, docker_daemon_log_max_file, docker_daemon_live_restore | Пользователи Docker и настройки daemon |
+| wireguard_interface, wireguard_address, wireguard_listen_port, wireguard_peers | Интерфейс и узлы VPN |
+| nginx_proxy_sites, nginx_proxy_webroot | Сайты reverse proxy, upstream и webroot ACME |
+| node_exporter_version, node_exporter_port, node_exporter_listen_address | Версия и адрес прослушивания Node Exporter |
+| vector_sink_url, vector_data_dir | HTTPS endpoint и каталог данных Vector |
+| postgres_database, postgres_role, postgres_shared_buffers, postgres_effective_cache_size, postgres_work_mem, postgres_maintenance_work_mem, postgres_max_connections | Имя базы/роли и параметры PostgreSQL |
+| db_backup_s3_bucket, db_backup_aws_region, db_backup_s3_prefix, db_backup_schedule | Параметры назначения и расписание S3 backup |
+| db_backup_local_dir, db_backup_retention_days, db_backup_zstd_level | Локальное хранение и сжатие backup |
+| maintenance_reboot_if_required, maintenance_reboot_timeout | Автоматическая перезагрузка после обновлений |
+| disk_journal_vacuum_time, docker_prune_until | Сроки очистки журнала и старых Docker-объектов |
 
-- Создаёт ранний SSH drop-in, запрещающий парольный вход и вход root.
-- Устанавливает и включает Fail2ban для SSH.
-- Устанавливает UFW, разрешает входящий TCP на порты 22, 80 и 443, затем задаёт политику deny для входящих соединений и включает firewall.
-- Выполняет изменения UFW последовательно, по одному хосту.
+Значения по умолчанию — стартовые, а не универсальный тюнинг для любого сервера. В частности, подберите PostgreSQL memory settings под доступную RAM. Для Node Exporter по умолчанию используется 127.0.0.1:9100; не открывайте его в публичную сеть без ограничения доступа.
 
-Если SSH работает на нестандартном порту, измените `security_ssh_port` **и** включите этот порт в `security_ufw_allowed_tcp_ports`. Playbook завершится до изменения firewall, если порт SSH не разрешён. Не закрывайте текущую SSH-сессию, пока не проверите новое подключение.
+### Секреты Ansible Vault
 
-## Docker и сетевые сервисы
+В репозитории уже есть зашифрованный файл inventory/group_vars/all/vault.yml. Отредактируйте его локально:
 
-### Docker Engine
+~~~bash
+ansible-vault edit inventory/group_vars/all/vault.yml
+~~~
 
-`docker_engine.yml` подключает официальный APT-репозиторий Docker CE, ставит Engine и Compose plugin и задаёт ротацию JSON-логов (50 MB, 5 файлов). Пользователь в группе `docker` может получить root-доступ к хосту; используйте `docker_admin_users` осознанно.
+В нём должны быть заданы переменные, которые используются playbook:
 
-Docker может обходить правила UFW для опубликованных портов контейнеров. Ограничивайте публикацию портов и проверяйте цепочку `DOCKER-USER` для фильтрации контейнерного трафика.
+~~~yaml
+vault_bootstrap_admin_password_hash: "ХЕШ_ПАРОЛЯ_АДМИНИСТРАТОРА"
+vault_postgres_app_password: "СЛОЖНЫЙ_ПАРОЛЬ_POSTGRES"
+vault_vector_sink_auth_token: "ТОКЕН_HTTPS_SINK"
+~~~
+
+Для администратора нужен хеш пароля, не открытый пароль. Например, SHA-512-хеш можно создать командой:
+
+~~~bash
+openssl passwd -6
+~~~
+
+Храните пароль Vault отдельно от репозитория. Запускайте команды с --ask-vault-pass, чтобы Ansible запросил его интерактивно. Не помещайте пароль Vault, API-токены, AWS access keys или приватные ключи в inventory, README и обычные vars.yml.
+
+Для S3 предпочтительна IAM role виртуальной машины или задачи контейнера с минимальными правами на запись в используемый bucket/prefix. Playbook не требует статических AWS-ключей.
+
+## 3. Первичная настройка сервера
+
+Первый playbook создаёт отдельного администратора. До запуска проверьте имя пользователя, парольный хеш в Vault и путь к публичному ключу:
+
+~~~bash
+ansible-playbook playbooks/bootstrap/system.yml --limit server1 --ask-vault-pass --check --diff
+ansible-playbook playbooks/bootstrap/system.yml --limit server1 --ask-vault-pass
+~~~
+
+После запуска проверьте вход новым пользователем. Затем обновите inventory/hosts.ini, указав нового пользователя в ansible_user, и проверьте SSH-доступ:
+
+~~~bash
+ansible all -m ansible.builtin.ping --limit server1
+~~~
+
+Только после проверки запустите SSH hardening и firewall:
+
+~~~bash
+ansible-playbook playbooks/bootstrap/security.yml --limit server1 --check --diff
+ansible-playbook playbooks/bootstrap/security.yml --limit server1
+~~~
+
+Security playbook включает UFW и оставляет входящими только порты из security_ufw_allowed_tcp_ports. Если SSH работает, например, на порту 2222, измените одновременно security_ssh_port и список разрешённых TCP-портов. Добавьте порты приложения до запуска, иначе firewall закроет к ним вход. SSH-порт проверяется до включения UFW.
+
+## 4. Запуск остальных playbook
+
+Проверьте изменение в check mode, затем примените его на одном сервере. Для секретов используйте --ask-vault-pass:
+
+~~~bash
+ansible-playbook playbooks/docker/docker_engine.yml --limit server1 --check --diff
+ansible-playbook playbooks/docker/docker_engine.yml --limit server1
+~~~
+
+Если playbook использует значения из Vault, добавьте --ask-vault-pass к обеим командам. Можно указать несколько серверов или группу после того, как проверили выполнение на одном узле:
+
+~~~bash
+ansible-playbook playbooks/maintenance/update_all.yml --limit 'server1,server2' --ask-vault-pass
+~~~
+
+Чтобы передать разовую настройку без изменения vars.yml, используйте -e:
+
+~~~bash
+ansible-playbook playbooks/observability/node_exporter.yml --limit server1 -e node_exporter_listen_address=10.0.0.10
+~~~
+
+Для просмотра задач и тегов:
+
+~~~bash
+ansible-playbook playbooks/network/nginx_proxy.yml --list-tasks
+ansible-playbook playbooks/network/nginx_proxy.yml --list-tags
+~~~
+
+## Настройка сервисов
 
 ### WireGuard
 
-Заполните `wireguard_peers` для каждого хоста в `group_vars` или в host vars. Ключ интерфейса создаётся на сервере один раз и хранится с правами root-only.
+На каждом узле задайте wireguard_address и список wireguard_peers. У каждого peer нужны уникальные public_key и allowed_ips; endpoint и persistent_keepalive задаются, когда это требуется топологией. Приватный ключ интерфейса создаётся на сервере при первом запуске, сохраняется в /etc/wireguard/ с правами root-only и не попадает в Git. WireGuard использует UDP-порт wireguard_listen_port; убедитесь, что он открыт также во внешнем firewall провайдера.
 
-Пример структуры peer:
+Пример peer:
 
-```yaml
+~~~yaml
 wireguard_peers:
-  - public_key: "PUBLIC_KEY_FROM_PEER"
+  - public_key: "ПУБЛИЧНЫЙ_КЛЮЧ_PEER"
     allowed_ips: "10.10.0.2/32"
     endpoint: "vpn-peer.example.net:51820"
     persistent_keepalive: 25
-```
-
-Задайте уникальные адреса и AllowedIPs для каждого узла. Приватный ключ генерируется локально на целевом сервере и не хранится в Git.
+~~~
 
 ### NGINX и Let's Encrypt
 
-Задайте список сайтов в `nginx_proxy_sites`:
+Для каждого домена добавьте запись в nginx_proxy_sites. DNS должен указывать на сервер; порты 80 и 443 должны быть доступны снаружи. HTTP используется для проверки ACME, затем NGINX перенаправляет запросы на HTTPS и проксирует их на upstream.
 
-```yaml
+~~~yaml
 nginx_proxy_sites:
   - server_name: app.example.net
     upstream_url: http://127.0.0.1:3000
     email: ops@example.net
-```
+~~~
 
-DNS-имя должно указывать на сервер, а входящий TCP/80 должен быть доступен для проверки ACME. Playbook сначала поднимает HTTP-конфигурацию для challenge, получает сертификат, затем устанавливает TLS reverse proxy. Продление выполняет системный таймер Certbot; deploy-hook перезагружает NGINX после получения нового сертификата.
+### Docker
 
-## Observability
+Docker log rotation по умолчанию ограничена размером 50 MB и пятью файлами. Пользователи из docker_admin_users фактически получают root-полномочия на хосте. Также опубликованные порты Docker могут обходить правила UFW; ограничивайте публикацию портов и отдельно контролируйте контейнерный трафик.
 
-### Node Exporter
+### Node Exporter и Vector
 
-Используется официальный архив релиза с SHA-256 проверкой и отдельной системной учётной записью. По умолчанию exporter слушает только `127.0.0.1:9100`; задайте приватный адрес в `node_exporter_listen_address`, если Prometheus скрейпит его по сети, и ограничьте доступ сетевым firewall.
+Node Exporter использует официальный релизный архив и SHA-256 checksum, отдельного системного пользователя и systemd unit. Если Prometheus опрашивает его по сети, установите приватный адрес прослушивания и ограничьте доступ сетевым firewall.
 
-### Vector
+Vector сначала требует Docker Engine. Укажите HTTPS URL в vector_sink_url и токен в Vault. Для чтения Docker-логов пользователь Vector добавляется в группу docker, которая обладает широкими полномочиями на хосте.
 
-Vector собирает journald и Docker-логи и отправляет их в настроенный HTTPS sink. Для запуска задайте `vector_sink_url` и сохраните `vault_vector_sink_auth_token` в Ansible Vault. Участие пользователя Vector в группе `docker` позволяет читать Docker API, но группа Docker эквивалентна root-доступу; используйте этот сборщик только на доверенном хосте.
+### PostgreSQL и S3
 
-## PostgreSQL и резервное копирование
+Перед PostgreSQL playbook задайте vault_postgres_app_password. Память и число соединений регулируются через переменные postgres_* в vars.yml.
 
-### PostgreSQL
+Для backup задайте db_backup_s3_bucket, db_backup_aws_region и при необходимости db_backup_s3_prefix. Расписание по умолчанию — ежедневно в 02:30 по времени сервера. Сервис делает pg_dump через локальное подключение, сжимает результат zstd, отправляет его с SSE-S3 и хранит локальные копии ограниченное число дней. Включается systemd timer; проверьте после запуска его состояние и успешность первой резервной копии. Восстановление не автоматизировано — периодически выполняйте пробное восстановление отдельно.
 
-Playbook устанавливает пакетную версию PostgreSQL Debian/Ubuntu, применяет настраиваемые параметры памяти и создаёт роль и базу приложения. До запуска сохраните `vault_postgres_app_password` в Ansible Vault. Значения памяти в `group_vars/all.yml` — стартовые; подстройте их под RAM и нагрузку сервера.
+### Обновления и очистка
 
-### S3 backup
+update_all.yml выполняет dist-upgrade по одному серверу за раз и по умолчанию перезагружает систему, если обнаружен /var/run/reboot-required. При необходимости отключите это через maintenance_reboot_if_required.
 
-`db_backup_s3.yml` создаёт systemd service и ежедневный timer. Резервная копия снимается через локальный socket, сжимается zstd и отправляется в S3 с SSE-S3. Для AWS используйте IAM instance/task role; статические AWS ключи в playbook не задаются. Укажите `db_backup_s3_bucket` и `db_backup_aws_region`, а также убедитесь, что роль имеет минимальные права на запись в нужный префикс. Локальные архивы старше заданного срока удаляются.
+disk_cleanup.yml сокращает systemd journal, удаляет старые остановленные контейнеры и неиспользуемые Docker images/build cache, затем очищает кэш APT и удаляет ненужные пакеты. Docker volumes не удаляются, чтобы не потерять данные приложений.
 
-Восстановление не автоматизируется этим набором: регулярно проверяйте целостность и выполняйте пробное восстановление отдельно.
+## Практические команды
 
-## Обслуживание
+Проверить inventory и доступность:
 
-- `maintenance/update_all.yml`: обновляет APT-пакеты через dist-upgrade, удаляет ненужные зависимости и перезагружает сервер при наличии `/var/run/reboot-required` (по умолчанию включено). Запускайте с `--limit` и по одному узлу.
-- `maintenance/disk_cleanup.yml`: ограничивает срок хранения systemd journal, удаляет остановленные контейнеры, неиспользуемые образы и builder cache старше `docker_prune_until`, а также удаляет ненужные пакеты и архивы.
+~~~bash
+ansible-inventory --graph
+ansible all -m ansible.builtin.ping
+~~~
 
-Очистка Docker намеренно не удаляет volumes: они могут содержать данные приложений.
+Проверить синтаксис отдельного playbook и план изменений:
 
-## Секреты
+~~~bash
+ansible-playbook playbooks/database/postgres_standalone.yml --syntax-check
+ansible-playbook playbooks/database/postgres_standalone.yml --limit server1 --check --diff --ask-vault-pass
+~~~
 
-Не храните секреты в Git. Создайте зашифрованный файл, например:
-
-```bash
-ansible-vault create inventory/group_vars/vault.yml
-```
-
-Пример содержимого:
-
-```yaml
-vault_bootstrap_admin_password_hash: "SHA512_OR_YESCRYPT_HASH"
-vault_postgres_app_password: "GENERATE_AND_REPLACE"
-vault_vector_sink_auth_token: "GENERATE_AND_REPLACE"
-```
-
-Запускайте playbook с `--ask-vault-pass` или настроенным безопасным Vault ID. Файл `vault.yml` зашифруйте командой Ansible Vault и не добавляйте пароль Vault в репозиторий.
-
-## Проверка перед применением
-
-```bash
-ansible-playbook playbooks/<category>/<playbook>.yml --limit server1 --syntax-check
-ansible-playbook playbooks/<category>/<playbook>.yml --limit server1 --check --diff
-```
-
-Check mode не может полностью предсказать действия внешних сервисов, firewall, Certbot и перезагрузки. Для таких изменений используйте тестовый хост и проверяйте фактическое состояние после запуска.
+Применяйте firewall, SSH, PostgreSQL, WireGuard и обслуживание сначала на одном тестовом хосте. Check mode не может полностью предсказать внешние эффекты Certbot, firewall, systemd и перезагрузки; изучайте diff и проверяйте сервисы после запуска.

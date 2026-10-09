@@ -1,6 +1,6 @@
 ---
 - name: Install and configure Docker Engine CE
-  hosts: debian_servers
+  hosts: all
   become: true
   gather_facts: true
 

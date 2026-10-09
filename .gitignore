@@ -10,3 +10,6 @@ hosts
 *.vault
 *.retry
 .ansible/
+
+# Never commit the encrypted Ansible Vault file from this repository
+inventory/group_vars/all/vault.yml

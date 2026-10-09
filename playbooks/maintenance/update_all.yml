@@ -1,6 +1,6 @@
 ---
 - name: Patch Debian and Ubuntu servers safely
-  hosts: debian_servers
+  hosts: all
   become: true
   gather_facts: true
   serial: 1

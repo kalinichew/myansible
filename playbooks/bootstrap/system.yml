@@ -1,6 +1,6 @@
 ---
 - name: Configure base system and administrator
-  hosts: debian_servers
+  hosts: all
   become: true
   gather_facts: true
 
