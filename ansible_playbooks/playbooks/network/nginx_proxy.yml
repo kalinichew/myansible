@@ -5,6 +5,13 @@
   gather_facts: true
 
   pre_tasks:
+    - name: Require at least one proxy site
+      ansible.builtin.assert:
+        that:
+          - nginx_proxy_sites | length > 0
+        fail_msg: "Define at least one nginx_proxy_sites entry."
+      tags: [always, nginx]
+
     - name: Validate proxy site definitions
       ansible.builtin.assert:
         that:
@@ -170,6 +177,17 @@
           - -t
       changed_when: false
       tags: [nginx, config, tls, validation]
+
+    - name: Install NGINX reload hook for renewed certificates
+      ansible.builtin.copy:
+        dest: /etc/letsencrypt/renewal-hooks/deploy/reload-nginx
+        content: |
+          #!/bin/sh
+          /usr/bin/systemctl reload nginx
+        owner: root
+        group: root
+        mode: "0750"
+      tags: [certbot, config, service]
 
     - name: Ensure Certbot renewal timer is enabled
       ansible.builtin.service:
