@@ -1,0 +1,297 @@
+---
+- name: Configure Xray VLESS + Reality
+  hosts: all
+  become: true
+  gather_facts: true
+  serial: 1
+
+  vars:
+    xray_installer_url: https://github.com/XTLS/Xray-install/raw/main/install-release.sh
+    xray_installer_path: /usr/local/src/xray-install-release.sh
+    xray_credentials_path: /etc/xray/credentials.yml
+    xray_config_path: /usr/local/etc/xray/config.json
+
+  pre_tasks:
+    - name: Verify supported operating system and required values
+      ansible.builtin.assert:
+        that:
+          - ansible_os_family == "Debian"
+          - ansible_distribution in ["Debian", "Ubuntu"]
+          - xray_port | int >= 1
+          - xray_port | int <= 65535
+          - xray_sni | length > 0
+          - xray_dest | length > 0
+          - security_ssh_port | int >= 1
+          - security_ssh_port | int <= 65535
+        fail_msg: "Set valid Xray SNI, destination, ports, and use Debian or Ubuntu."
+      tags: [always, platform, xray]
+
+  handlers:
+    - name: Restart Xray
+      ansible.builtin.systemd_service:
+        name: xray.service
+        state: restarted
+        enabled: true
+      tags: [xray, service]
+
+    - name: Reload UFW
+      ansible.builtin.service:
+        name: ufw
+        state: reloaded
+      tags: [firewall, service]
+
+  tasks:
+    - name: Set VPS hostname
+      ansible.builtin.hostname:
+        name: "{{ vps_hostname }}"
+      tags: [base, hostname]
+
+    - name: Set VPS timezone
+      community.general.timezone:
+        name: "{{ vps_timezone }}"
+      tags: [base, timezone]
+
+    - name: Install Xray installer prerequisites
+      ansible.builtin.apt:
+        name:
+          - ca-certificates
+          - curl
+          - unzip
+          - openssl
+        state: present
+        update_cache: true
+        cache_valid_time: 3600
+      tags: [xray, packages]
+
+    - name: Ensure installer download directory exists
+      ansible.builtin.file:
+        path: /usr/local/src
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+      tags: [xray, install]
+
+    - name: Check whether Xray is already installed
+      ansible.builtin.stat:
+        path: /usr/local/bin/xray
+      register: xray_binary
+      tags: [xray, install]
+
+    - name: Download the official Xray installer
+      ansible.builtin.get_url:
+        url: "{{ xray_installer_url }}"
+        dest: "{{ xray_installer_path }}"
+        owner: root
+        group: root
+        mode: "0755"
+        force: "{{ xray_update | bool }}"
+      when: xray_update | bool or not xray_binary.stat.exists
+      tags: [xray, install, xray_install]
+
+    - name: Install or update Xray from the official release channel
+      ansible.builtin.command:
+        argv:
+          - bash
+          - "{{ xray_installer_path }}"
+          - "@"
+          - install
+      when: xray_update | bool or not xray_binary.stat.exists
+      register: xray_install_result
+      changed_when: true
+      tags: [xray, install, xray_install]
+
+    - name: Ensure Xray configuration directory is private and readable by its service
+      ansible.builtin.file:
+        path: /usr/local/etc/xray
+        state: directory
+        owner: root
+        group: nogroup
+        mode: "0750"
+      tags: [xray, config]
+
+    - name: Ensure credentials directory exists
+      ansible.builtin.file:
+        path: /etc/xray
+        state: directory
+        owner: root
+        group: root
+        mode: "0700"
+      tags: [xray, credentials]
+
+    - name: Check for existing Xray credentials
+      ansible.builtin.stat:
+        path: "{{ xray_credentials_path }}"
+      register: xray_credentials_stat
+      no_log: true
+      tags: [xray, credentials]
+
+    - name: Generate Xray UUID when credentials are missing
+      ansible.builtin.command:
+        argv:
+          - /usr/local/bin/xray
+          - uuid
+      register: xray_uuid_result
+      when: not xray_credentials_stat.stat.exists
+      changed_when: true
+      no_log: true
+      tags: [xray, credentials]
+
+    - name: Generate X25519 keypair when credentials are missing
+      ansible.builtin.command:
+        argv:
+          - /usr/local/bin/xray
+          - x25519
+      register: xray_keypair_result
+      when: not xray_credentials_stat.stat.exists
+      changed_when: true
+      no_log: true
+      tags: [xray, credentials]
+
+    - name: Generate Reality short ID when credentials are missing
+      ansible.builtin.command:
+        argv:
+          - openssl
+          - rand
+          - -hex
+          - "8"
+      register: xray_short_id_result
+      when: not xray_credentials_stat.stat.exists
+      changed_when: true
+      no_log: true
+      tags: [xray, credentials]
+
+    - name: Assemble credentials in memory
+      ansible.builtin.set_fact:
+        xray_credentials:
+          uuid: "{{ xray_uuid_result.stdout | trim }}"
+          private_key: "{{ (xray_keypair_result.stdout | regex_search('(?m)^PrivateKey: (\\S+)', '\\1')) | first }}"
+          public_key: "{{ (xray_keypair_result.stdout | regex_search('(?m)^Password(?: \\(PublicKey\\))?: (\\S+)', '\\1')) | first }}"
+          short_id: "{{ xray_short_id_result.stdout | trim }}"
+      when: not xray_credentials_stat.stat.exists
+      no_log: true
+      tags: [xray, credentials]
+
+    - name: Verify generated credentials have expected values
+      ansible.builtin.assert:
+        that:
+          - xray_credentials.uuid is match('^[0-9a-fA-F-]{36}$')
+          - xray_credentials.private_key | length > 20
+          - xray_credentials.public_key | length > 20
+          - xray_credentials.short_id is match('^[0-9a-f]{16}$')
+        fail_msg: "Xray returned credentials in an unexpected format."
+      when: not xray_credentials_stat.stat.exists
+      no_log: true
+      tags: [xray, credentials]
+
+    - name: Save generated credentials for future playbook runs
+      ansible.builtin.copy:
+        dest: "{{ xray_credentials_path }}"
+        content: "{{ xray_credentials | to_nice_yaml }}"
+        owner: root
+        group: root
+        mode: "0600"
+      when: not xray_credentials_stat.stat.exists
+      no_log: true
+      tags: [xray, credentials]
+
+    - name: Read persisted Xray credentials
+      ansible.builtin.slurp:
+        src: "{{ xray_credentials_path }}"
+      register: xray_credentials_file
+      no_log: true
+      tags: [xray, credentials, config, link]
+
+    - name: Load persisted Xray credentials into memory
+      ansible.builtin.set_fact:
+        xray_credentials: "{{ xray_credentials_file.content | b64decode | from_yaml }}"
+      no_log: true
+      tags: [xray, credentials, config, link]
+
+    - name: Ensure credentials are readable only by root
+      ansible.builtin.file:
+        path: "{{ xray_credentials_path }}"
+        owner: root
+        group: root
+        mode: "0600"
+      no_log: true
+      tags: [xray, credentials]
+
+    - name: Install Xray Reality server configuration
+      ansible.builtin.template:
+        src: ../../roles/xray/templates/config.json.j2
+        dest: "{{ xray_config_path }}"
+        owner: root
+        group: nogroup
+        mode: "0640"
+        validate: "/usr/local/bin/xray run -test -config %s"
+      no_log: true
+      notify: Restart Xray
+      tags: [xray, config]
+
+    - name: Install UFW
+      ansible.builtin.apt:
+        name: ufw
+        state: present
+      tags: [xray, firewall]
+
+    - name: Allow SSH before enabling UFW
+      community.general.ufw:
+        rule: allow
+        port: "{{ security_ssh_port | string }}"
+        proto: tcp
+      notify: Reload UFW
+      tags: [xray, firewall]
+
+    - name: Allow VLESS + Reality port
+      community.general.ufw:
+        rule: allow
+        port: "{{ xray_port | string }}"
+        proto: tcp
+      notify: Reload UFW
+      tags: [xray, firewall]
+
+    - name: Set UFW default policies
+      community.general.ufw:
+        direction: "{{ item.direction }}"
+        policy: "{{ item.policy }}"
+      loop:
+        - { direction: incoming, policy: deny }
+        - { direction: outgoing, policy: allow }
+      notify: Reload UFW
+      tags: [xray, firewall]
+
+    - name: Enable UFW after allowing SSH and Xray ports
+      community.general.ufw:
+        state: enabled
+      tags: [xray, firewall]
+
+    - name: Enable BBR congestion control
+      ansible.posix.sysctl:
+        name: "{{ item.name }}"
+        value: "{{ item.value }}"
+        state: present
+        sysctl_file: /etc/sysctl.d/99-xray-bbr.conf
+        reload: true
+      loop:
+        - { name: net.core.default_qdisc, value: fq }
+        - { name: net.ipv4.tcp_congestion_control, value: bbr }
+      tags: [xray, bbr]
+
+    - name: Ensure Xray is enabled and running
+      ansible.builtin.systemd_service:
+        name: xray.service
+        enabled: true
+        state: started
+      tags: [xray, service]
+
+    - name: Build VLESS client link
+      ansible.builtin.set_fact:
+        xray_client_link: "vless://{{ xray_credentials.uuid }}@{{ xray_public_host | default(ansible_host | default(inventory_hostname), true) }}:{{ xray_port }}?encryption=none&flow=xtls-rprx-vision&security=reality&sni={{ xray_sni | urlencode }}&fp=chrome&pbk={{ xray_credentials.public_key | urlencode }}&sid={{ xray_credentials.short_id }}&type=tcp#{{ vps_hostname | urlencode }}"
+      no_log: true
+      tags: [xray, link]
+
+    - name: Print VLESS client link
+      ansible.builtin.debug:
+        msg: "{{ xray_client_link }}"
+      tags: [xray, link]

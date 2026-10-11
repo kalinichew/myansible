@@ -233,7 +233,63 @@ ansible-playbook playbooks/maintenance/disk_cleanup.yml --limit server1 --check 
 ansible-playbook playbooks/maintenance/disk_cleanup.yml --limit server1
 ~~~
 
-Обновление идёт по одному хосту и может перезагрузить его, если найден `/var/run/reboot-required`. Docker cleanup не удаляет volumes; перед очисткой всё равно проверяйте, что образы и stopped containers больше не нужны.
+## Xray: VLESS + Reality
+
+Playbook `playbooks/network/xray_reality.yml` предназначен для Debian и Ubuntu. Он устанавливает Xray-core через официальный установщик XTLS, настраивает VLESS + Reality на TCP, открывает SSH- и Xray-порты в UFW, включает BBR и печатает готовую ссылку подключения.
+
+### Настройка и первый запуск
+
+Скопируйте inventory-шаблон и укажите VPS, на котором хотите включить этот сервис:
+
+~~~bash
+cp inventory/hosts.ini.example inventory/hosts.ini
+~~~
+
+Проверьте, что `security_ssh_port` в `inventory/group_vars/all/vars.yml` совпадает с фактическим SSH-портом сервера. Измените при необходимости параметры Xray:
+
+~~~yaml
+vps_hostname: my-vps
+vps_timezone: Europe/Moscow
+xray_port: 443
+xray_sni: www.cloudflare.com
+xray_dest: www.cloudflare.com:443
+xray_public_host: ""
+~~~
+
+`xray_public_host` — адрес, который попадёт в клиентскую ссылку. Если оставить его пустым, playbook возьмёт `ansible_host` из inventory, а при его отсутствии — имя хоста из inventory.
+
+Запустите сначала на одном хосте:
+
+~~~bash
+ansible-playbook playbooks/network/xray_reality.yml --syntax-check
+ansible-playbook playbooks/network/xray_reality.yml --limit server1
+~~~
+
+Playbook включает UFW с политикой «запрещать входящие по умолчанию», заранее разрешая заданный SSH-порт и `xray_port`. До запуска проверьте SSH-порт и дополнительные входящие порты приложений: добавьте необходимые порты в правила firewall, иначе подключения к ним будут закрыты. Проверьте также внешний firewall у VPS-провайдера. Не закрывайте текущую SSH-сессию, пока не проверите новый вход.
+
+При первом запуске создаются UUID, X25519-ключи и Short ID. Они сохраняются в `/etc/xray/credentials.yml` с правами `0600`; повторные запуски используют сохранённые значения. Не публикуйте этот файл и сделайте резервную копию в защищённом месте. Публичную клиентскую ссылку Ansible выводит в конце запуска.
+
+### Обновление Xray и смена SNI
+
+Для установки текущей версии Xray из официального release-канала и применения конфигурации повторно запустите playbook с флагом обновления:
+
+~~~bash
+ansible-playbook playbooks/network/xray_reality.yml --limit server1 --tags xray -e xray_update=true
+~~~
+
+Чтобы сменить SNI или destination, отредактируйте `xray_sni` и `xray_dest` в `inventory/group_vars/all/vars.yml` и повторите обычный запуск с тегом `xray`. UUID, ключи и Short ID сохраняются. После изменения параметров используйте новую ссылку, выведенную playbook.
+
+### Диагностика
+
+~~~bash
+ssh root@your_vps_ip "ufw status"
+ssh root@your_vps_ip "systemctl status xray"
+ssh root@your_vps_ip "journalctl -u xray -n 50"
+~~~
+
+Поддерживаемые клиентские приложения из исходного списка: NekoRay и Hiddify Next для Windows; v2rayNG и Hiddify для Android; Streisand и Hiddify для iOS; Hiddify и V2RayU для macOS. Совместимость зависит от версии приложения.
+
+## Практические команды
 
 ## Проверка перед применением
 

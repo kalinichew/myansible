@@ -47,6 +47,15 @@ docker_daemon_log_max_size: 50m
 docker_daemon_log_max_file: "5"
 docker_daemon_live_restore: true
 
+# VPS identity and Xray VLESS + Reality
+vps_hostname: my-vps
+vps_timezone: Europe/Moscow
+xray_port: 443
+xray_sni: www.cloudflare.com
+xray_dest: www.cloudflare.com:443
+xray_public_host: ""
+xray_update: false
+
 # WireGuard
 wireguard_interface: wg0
 wireguard_address: 10.10.0.1/24
