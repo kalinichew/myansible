@@ -42,6 +42,7 @@
     ├── docker/docker_engine.yml
     ├── network/
     │   ├── wireguard.yml
+    │   ├── xray_reality.yml
     │   └── nginx_proxy.yml
     ├── observability/
     │   ├── node_exporter.yml
