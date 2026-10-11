@@ -57,6 +57,7 @@
           - ca-certificates
           - curl
           - unzip
+          - openssl
         state: present
         update_cache: true
         cache_valid_time: 3600
