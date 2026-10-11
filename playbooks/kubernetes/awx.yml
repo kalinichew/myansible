@@ -1,0 +1,120 @@
+---
+- name: Deploy AWX with the community AWX Operator
+  hosts: localhost
+  connection: local
+  gather_facts: false
+
+  pre_tasks:
+    - name: Require persistent storage and Vault credentials
+      ansible.builtin.assert:
+        that:
+          - awx_storage_class | length > 0
+          - awx_admin_password | length >= 20
+          - awx_secret_key | length >= 32
+        fail_msg: >-
+          Set awx_storage_class and store a strong awx admin password and
+          persistent secret key in Ansible Vault before deploying AWX.
+      no_log: true
+      tags: [always, awx, validation]
+
+  tasks:
+    - name: Ensure AWX namespace exists
+      kubernetes.core.k8s:
+        kubeconfig: "{{ k8s_kubeconfig }}"
+        state: present
+        definition:
+          apiVersion: v1
+          kind: Namespace
+          metadata:
+            name: "{{ awx_namespace }}"
+      tags: [awx, namespace, config]
+
+    - name: Add the official AWX Operator Helm repository
+      kubernetes.core.helm_repository:
+        name: awx-operator
+        repo_url: https://ansible-community.github.io/awx-operator-helm/
+        state: present
+      tags: [awx, helm, repository]
+
+    - name: Install the pinned AWX Operator chart
+      kubernetes.core.helm:
+        kubeconfig: "{{ k8s_kubeconfig }}"
+        name: "{{ awx_operator_release_name }}"
+        chart_ref: awx-operator/awx-operator
+        chart_version: "{{ awx_operator_chart_version }}"
+        release_namespace: "{{ awx_namespace }}"
+        create_namespace: true
+        update_repo_cache: true
+        wait: true
+        wait_timeout: 600s
+        values:
+          AWX:
+            enabled: false
+      tags: [awx, helm, operator]
+
+    - name: Wait for the AWX custom resource definition
+      kubernetes.core.k8s_info:
+        kubeconfig: "{{ k8s_kubeconfig }}"
+        api_version: apiextensions.k8s.io/v1
+        kind: CustomResourceDefinition
+        name: awxs.awx.ansible.com
+      register: awx_crd
+      until: awx_crd.resources | length > 0
+      retries: 30
+      delay: 10
+      tags: [awx, operator, readiness]
+
+    - name: Create AWX admin and encryption-key Secrets
+      kubernetes.core.k8s:
+        kubeconfig: "{{ k8s_kubeconfig }}"
+        state: present
+        definition:
+          - apiVersion: v1
+            kind: Secret
+            metadata:
+              name: "{{ awx_name }}-admin-password"
+              namespace: "{{ awx_namespace }}"
+            type: Opaque
+            stringData:
+              password: "{{ awx_admin_password }}"
+          - apiVersion: v1
+            kind: Secret
+            metadata:
+              name: "{{ awx_name }}-secret-key"
+              namespace: "{{ awx_namespace }}"
+            type: Opaque
+            stringData:
+              secret_key: "{{ awx_secret_key }}"
+      no_log: true
+      tags: [awx, secrets, config]
+
+    - name: Create the AWX instance
+      kubernetes.core.k8s:
+        kubeconfig: "{{ k8s_kubeconfig }}"
+        state: present
+        definition:
+          apiVersion: awx.ansible.com/v1beta1
+          kind: AWX
+          metadata:
+            name: "{{ awx_name }}"
+            namespace: "{{ awx_namespace }}"
+          spec:
+            service_type: clusterip
+            admin_password_secret: "{{ awx_name }}-admin-password"
+            secret_key_secret: "{{ awx_name }}-secret-key"
+            postgres_storage_class: "{{ awx_storage_class }}"
+            postgres_storage_requirements:
+              requests:
+                storage: "{{ awx_postgres_storage_size }}"
+            projects_persistence: true
+            projects_storage_class: "{{ awx_storage_class }}"
+            projects_storage_size: "{{ awx_projects_storage_size }}"
+      tags: [awx, instance, config]
+
+    - name: Show private-cluster access command
+      ansible.builtin.debug:
+        msg: >-
+          AWX is internal-only. When the service is ready, use:
+          kubectl -n {{ awx_namespace }} port-forward
+          svc/{{ awx_name }}-service 8080:80
+      tags: [awx, access]

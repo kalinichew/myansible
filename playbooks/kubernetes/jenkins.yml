@@ -1,0 +1,214 @@
+---
+- name: Deploy a private Jenkins controller with persistent storage
+  hosts: localhost
+  connection: local
+  gather_facts: false
+
+  pre_tasks:
+    - name: Require persistent storage and a Vault-managed admin password
+      ansible.builtin.assert:
+        that:
+          - jenkins_storage_class | length > 0
+          - jenkins_admin_user | length > 0
+          - jenkins_admin_password | length >= 20
+        fail_msg: >-
+          Set jenkins_storage_class and store a strong Jenkins admin password
+          in Ansible Vault before deploying Jenkins.
+      no_log: true
+      tags: [always, jenkins, validation]
+
+  tasks:
+    - name: Ensure Jenkins namespace exists
+      kubernetes.core.k8s:
+        kubeconfig: "{{ k8s_kubeconfig }}"
+        state: present
+        definition:
+          apiVersion: v1
+          kind: Namespace
+          metadata:
+            name: "{{ jenkins_namespace }}"
+      tags: [jenkins, namespace, config]
+
+    - name: Create Jenkins administrator Secret
+      kubernetes.core.k8s:
+        kubeconfig: "{{ k8s_kubeconfig }}"
+        state: present
+        definition:
+          apiVersion: v1
+          kind: Secret
+          metadata:
+            name: "{{ jenkins_name }}-admin"
+            namespace: "{{ jenkins_namespace }}"
+          type: Opaque
+          stringData:
+            username: "{{ jenkins_admin_user }}"
+            password: "{{ jenkins_admin_password }}"
+      no_log: true
+      tags: [jenkins, secrets, config]
+
+    - name: Install idempotent Jenkins security initialization script
+      kubernetes.core.k8s:
+        kubeconfig: "{{ k8s_kubeconfig }}"
+        state: present
+        definition:
+          apiVersion: v1
+          kind: ConfigMap
+          metadata:
+            name: "{{ jenkins_name }}-init"
+            namespace: "{{ jenkins_namespace }}"
+          data:
+            10-security.groovy: |
+              import jenkins.model.Jenkins
+              import hudson.security.HudsonPrivateSecurityRealm
+              import hudson.security.FullControlOnceLoggedInAuthorizationStrategy
+              import hudson.model.User
+
+              def instance = Jenkins.get()
+              def userId = System.getenv("JENKINS_ADMIN_ID")
+              def password = System.getenv("JENKINS_ADMIN_PASSWORD")
+              def realm = new HudsonPrivateSecurityRealm(false)
+              if (User.getById(userId, false) == null) {
+                  realm.createAccount(userId, password)
+              }
+              instance.setSecurityRealm(realm)
+              def strategy = new FullControlOnceLoggedInAuthorizationStrategy()
+              strategy.setAllowAnonymousRead(false)
+              instance.setAuthorizationStrategy(strategy)
+              instance.save()
+      tags: [jenkins, config, security]
+
+    - name: Create Jenkins StatefulSet and persistent claim template
+      kubernetes.core.k8s:
+        kubeconfig: "{{ k8s_kubeconfig }}"
+        state: present
+        definition:
+          apiVersion: apps/v1
+          kind: StatefulSet
+          metadata:
+            name: "{{ jenkins_name }}"
+            namespace: "{{ jenkins_namespace }}"
+            labels:
+              app.kubernetes.io/name: "{{ jenkins_name }}"
+          spec:
+            serviceName: "{{ jenkins_name }}"
+            replicas: 1
+            selector:
+              matchLabels:
+                app.kubernetes.io/name: "{{ jenkins_name }}"
+            template:
+              metadata:
+                labels:
+                  app.kubernetes.io/name: "{{ jenkins_name }}"
+              spec:
+                automountServiceAccountToken: false
+                securityContext:
+                  fsGroup: 1000
+                  fsGroupChangePolicy: OnRootMismatch
+                containers:
+                  - name: jenkins
+                    image: "{{ jenkins_image }}"
+                    imagePullPolicy: IfNotPresent
+                    ports:
+                      - name: http
+                        containerPort: 8080
+                        protocol: TCP
+                    env:
+                      - name: JENKINS_ADMIN_ID
+                        valueFrom:
+                          secretKeyRef:
+                            name: "{{ jenkins_name }}-admin"
+                            key: username
+                      - name: JENKINS_ADMIN_PASSWORD
+                        valueFrom:
+                          secretKeyRef:
+                            name: "{{ jenkins_name }}-admin"
+                            key: password
+                      - name: JAVA_OPTS
+                        value: "-Djenkins.install.runSetupWizard=false"
+                    resources:
+                      requests:
+                        cpu: "{{ jenkins_cpu_request }}"
+                        memory: "{{ jenkins_memory_request }}"
+                      limits:
+                        cpu: "{{ jenkins_cpu_limit }}"
+                        memory: "{{ jenkins_memory_limit }}"
+                    securityContext:
+                      runAsNonRoot: true
+                      runAsUser: 1000
+                      runAsGroup: 1000
+                      allowPrivilegeEscalation: false
+                      capabilities:
+                        drop:
+                          - ALL
+                    startupProbe:
+                      httpGet:
+                        path: /login
+                        port: http
+                      periodSeconds: 10
+                      failureThreshold: 60
+                    readinessProbe:
+                      httpGet:
+                        path: /login
+                        port: http
+                      periodSeconds: 10
+                      failureThreshold: 6
+                    livenessProbe:
+                      httpGet:
+                        path: /login
+                        port: http
+                      periodSeconds: 20
+                      failureThreshold: 6
+                    volumeMounts:
+                      - name: jenkins-home
+                        mountPath: /var/jenkins_home
+                      - name: init-script
+                        mountPath: /usr/share/jenkins/ref/init.groovy.d/10-security.groovy
+                        subPath: 10-security.groovy
+                        readOnly: true
+                volumes:
+                  - name: init-script
+                    configMap:
+                      name: "{{ jenkins_name }}-init"
+                      defaultMode: 0444
+            volumeClaimTemplates:
+              - metadata:
+                  name: jenkins-home
+                spec:
+                  accessModes:
+                    - ReadWriteOnce
+                  storageClassName: "{{ jenkins_storage_class }}"
+                  resources:
+                    requests:
+                      storage: "{{ jenkins_storage_size }}"
+      tags: [jenkins, workload, storage, config]
+
+    - name: Create private Jenkins ClusterIP service
+      kubernetes.core.k8s:
+        kubeconfig: "{{ k8s_kubeconfig }}"
+        state: present
+        definition:
+          apiVersion: v1
+          kind: Service
+          metadata:
+            name: "{{ jenkins_name }}"
+            namespace: "{{ jenkins_namespace }}"
+            labels:
+              app.kubernetes.io/name: "{{ jenkins_name }}"
+          spec:
+            type: ClusterIP
+            selector:
+              app.kubernetes.io/name: "{{ jenkins_name }}"
+            ports:
+              - name: http
+                port: 8080
+                targetPort: http
+                protocol: TCP
+      tags: [jenkins, service, network]
+
+    - name: Show private-cluster access command
+      ansible.builtin.debug:
+        msg: >-
+          Jenkins is internal-only. When the pod is ready, use:
+          kubectl -n {{ jenkins_namespace }} port-forward
+          svc/{{ jenkins_name }} 8080:8080
+      tags: [jenkins, access]

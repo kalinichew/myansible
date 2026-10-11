@@ -1,0 +1,81 @@
+---
+- name: Collect a read-only Debian or Ubuntu host health report
+  hosts: all
+  become: true
+  gather_facts: true
+  serial: 1
+
+  pre_tasks:
+    - name: Confirm supported operating system
+      ansible.builtin.assert:
+        that:
+          - ansible_os_family == "Debian"
+          - ansible_distribution in ["Debian", "Ubuntu"]
+        fail_msg: "This report supports Debian and Ubuntu hosts."
+      tags: [always, platform, diagnostics]
+
+  tasks:
+    - name: Capture filesystem capacity and mount types
+      ansible.builtin.command:
+        argv:
+          - df
+          - -hPT
+      register: host_report_disk
+      changed_when: false
+      tags: [diagnostics, disk]
+
+    - name: Capture memory and swap usage
+      ansible.builtin.command:
+        argv:
+          - free
+          - -h
+      register: host_report_memory
+      changed_when: false
+      tags: [diagnostics, memory]
+
+    - name: Capture failed systemd units
+      ansible.builtin.command:
+        argv:
+          - systemctl
+          - --failed
+          - --no-legend
+          - --plain
+      register: host_report_failed_units
+      changed_when: false
+      tags: [diagnostics, services]
+
+    - name: Capture listening TCP and UDP sockets
+      ansible.builtin.command:
+        argv:
+          - ss
+          - -lntup
+      register: host_report_listeners
+      changed_when: false
+      tags: [diagnostics, network]
+
+    - name: Check for a pending operating system reboot
+      ansible.builtin.stat:
+        path: /var/run/reboot-required
+      register: host_report_reboot
+      tags: [diagnostics, updates]
+
+    - name: Print host health report
+      ansible.builtin.debug:
+        msg: |
+          Host: {{ inventory_hostname }}
+          OS: {{ ansible_distribution }} {{ ansible_distribution_version }}
+          Uptime: {{ (ansible_facts.uptime_seconds | int // 3600) }} hours
+          Reboot required: {{ host_report_reboot.stat.exists }}
+
+          Disk:
+          {{ host_report_disk.stdout }}
+
+          Memory:
+          {{ host_report_memory.stdout }}
+
+          Failed systemd units:
+          {{ host_report_failed_units.stdout | default('none') }}
+
+          Listening sockets:
+          {{ host_report_listeners.stdout }}
+      tags: [diagnostics, report]
