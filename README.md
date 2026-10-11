@@ -12,7 +12,8 @@
 | Bootstrap | playbooks/bootstrap/system.yml | Обновляет APT, ставит базовые утилиты, устанавливает UTC и локаль, создаёт администратора с sudo и SSH-ключом |
 | Security | playbooks/bootstrap/security.yml | Отключает SSH-вход по паролю и root, настраивает Fail2ban и UFW |
 | Docker | playbooks/docker/docker_engine.yml | Устанавливает Docker CE и Compose plugin, задаёт ротацию логов |
-| Сеть | playbooks/network/wireguard.yml | Создаёт интерфейс WireGuard и peer-конфигурацию |\n| Сеть | playbooks/network/xray_reality.yml | Устанавливает Xray-core, настраивает VLESS + Reality, UFW и BBR, выводит ссылку клиента |
+| Сеть | playbooks/network/wireguard.yml | Создаёт интерфейс WireGuard и peer-конфигурацию |
+| Сеть | playbooks/network/xray_reality.yml | Устанавливает Xray-core, настраивает VLESS + Reality, UFW и BBR, выводит ссылку клиента |
 | Сеть | playbooks/network/nginx_proxy.yml | Настраивает NGINX reverse proxy и сертификаты Let's Encrypt |
 | Мониторинг | playbooks/observability/node_exporter.yml | Устанавливает Node Exporter как systemd-сервис |
 | Мониторинг | playbooks/observability/vector_shipper.yml | Отправляет journald и Docker-логи во внешний HTTPS sink |
