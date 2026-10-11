@@ -35,7 +35,7 @@
 │       └── all/
 │           ├── vars.yml
 │           └── vault.yml
-└── playbooks/
+├── playbooks/
     ├── bootstrap/
     │   ├── system.yml
     │   └── security.yml
@@ -53,6 +53,10 @@
     └── maintenance/
         ├── update_all.yml
         └── disk_cleanup.yml
+└── roles/
+    └── xray/
+        └── templates/
+            └── config.json.j2
 ~~~
 
 Файл ansible.cfg по умолчанию использует inventory/hosts.ini. Общие настройки находятся в inventory/group_vars/all/vars.yml, а чувствительные значения — в зашифрованном inventory/group_vars/all/vault.yml. Все команды ниже запускаются из корня репозитория.
