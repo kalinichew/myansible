@@ -63,6 +63,15 @@
         cache_valid_time: 3600
       tags: [xray, packages]
 
+    - name: Ensure installer download directory exists
+      ansible.builtin.file:
+        path: /usr/local/src
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+      tags: [xray, install]
+
     - name: Check whether Xray is already installed
       ansible.builtin.stat:
         path: /usr/local/bin/xray
