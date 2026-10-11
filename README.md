@@ -272,7 +272,7 @@ xray_public_host: ""
 Запустите сначала на одном хосте:
 
 ~~~bash
-ansible-playbook playbooks/network/xray_reality.yml --limit server1 --check --diff
+ansible-playbook playbooks/network/xray_reality.yml --syntax-check
 ansible-playbook playbooks/network/xray_reality.yml --limit server1
 ~~~
 
