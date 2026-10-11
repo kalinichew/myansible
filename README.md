@@ -142,7 +142,12 @@ NGINX требует DNS-записей доменов на сервер и до
 ansible-playbook playbooks/network/nginx_proxy.yml --limit server1
 ~~~
 
-Xray создаёт UUID, X25519-ключи и Short ID при первом запуске и сохраняет их в /etc/xray/credentials.yml с правами 0600. Клиентская ссылка выводится в конце запуска. До запуска проверьте SSH-порт и входящие правила UFW:
+Xray создаёт UUID, X25519-ключи и Short ID при первом запуске и сохраняет их в /etc/xray/credentials.yml с правами 0600. Клиентская ссылка выводится в конце запуска.
+
+> [!CAUTION]
+> Xray playbook включает UFW с запретом входящих соединений по умолчанию и открывает только SSH-порт и xray_port. Он не использует security_ufw_allowed_tcp_ports. На сервере с NGINX или другими службами это может закрыть их порты, включая 80/tcp. До запуска добавьте нужные правила в playbook или используйте отдельный сервер. Также учтите, что установщик Xray скачивается из изменяемой ветки upstream и запускается от root без закреплённой версии или checksum; для воспроизводимого production-развёртывания его следует закрепить.
+
+До запуска проверьте SSH-порт и входящие правила UFW:
 
 ~~~bash
 ansible-playbook playbooks/network/xray_reality.yml --syntax-check
