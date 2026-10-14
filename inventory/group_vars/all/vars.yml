@@ -80,25 +80,6 @@ vector_sink_url: ""
 vector_sink_auth_token: "{{ vault_vector_sink_auth_token | default('') }}"
 vector_data_dir: /var/lib/vector
 
-# PostgreSQL
-postgres_database: appdb
-postgres_role: appuser
-postgres_app_password: "{{ vault_postgres_app_password | default('') }}"
-postgres_shared_buffers: 256MB
-postgres_effective_cache_size: 1GB
-postgres_work_mem: 8MB
-postgres_maintenance_work_mem: 128MB
-postgres_max_connections: 100
-
-# S3 database backups. Prefer instance/task roles over static AWS credentials.
-db_backup_s3_bucket: ""
-db_backup_aws_region: ""
-db_backup_s3_prefix: postgres
-db_backup_schedule: "*-*-* 02:30:00"
-db_backup_local_dir: /var/backups/postgresql
-db_backup_retention_days: 7
-db_backup_zstd_level: 6
-
 # Maintenance
 maintenance_reboot_if_required: true
 maintenance_reboot_timeout: 900
