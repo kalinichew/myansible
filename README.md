@@ -62,7 +62,10 @@ cp inventory/group_vars/all/vault.example.yml inventory/group_vars/all/vault.yml
 ~~~yaml
 ---
 vault_bootstrap_admin_password_hash: "$6$ВСТАВЬТЕ_СЮДА_ХЭШ"
+vault_ansible_become_password: "ПАРОЛЬ_SUDO_ПОЛЬЗОВАТЕЛЯ_ПО_SSH"
 ~~~
+
+Для первичной настройки под root поле vault_ansible_become_password не требуется. Если подключаетесь обычным пользователем, укажите его пароль sudo; как правило, это пароль самого SSH-пользователя, а не root. Не записывайте в этот параметр sudo пароль, если пользователь не имеет права sudo.
 
 Для других сценариев в этот же YAML-файл добавляются нужные значения:
 
@@ -112,7 +115,7 @@ Linux-хосты задаются в inventory. Большинство серв�
 
 | Переменные | Используются в |
 |---|---|
-| bootstrap_admin_*, bootstrap_ssh_public_key_path, bootstrap_timezone, bootstrap_locale | Первичная настройка |
+| bootstrap_admin_*, bootstrap_ssh_public_key_path, bootstrap_timezone, bootstrap_locale, ansible_become_password | Первичная настройка и пароль sudo из Vault |
 | security_ssh_*, security_ufw_allowed_tcp_ports, security_fail2ban_* | SSH, Fail2ban и UFW |
 | docker_admin_users, docker_daemon_* | Docker |
 | wireguard_interface, wireguard_address, wireguard_listen_port, wireguard_peers | WireGuard |
@@ -140,7 +143,7 @@ ansible-playbook playbooks/bootstrap/system.yml --limit server1 --ask-vault-pass
 ansible-playbook playbooks/bootstrap/system.yml --limit server1 --ask-vault-pass
 ~~~
 
-Playbook требует права root. Если подключаетесь по SSH как root, укажите в inventory `ansible_become=false`: root уже имеет нужные права, запуск sudo не требуется. Эта настройка добавлена в inventory/hosts.ini.example. Если подключаетесь обычным пользователем с sudo, запустите playbook с `-K` (или `--ask-become-pass`) и введите его пароль sudo. Чтобы убрать запрос, заранее настройте этому пользователю NOPASSWD в sudoers. Переменная `bootstrap_admin_passwordless_sudo` задаёт sudo-права создаваемого администратора в конце playbook и не влияет на начальный SSH-пользователь.
+Playbook требует права root. Если подключаетесь по SSH как root, укажите в inventory `ansible_become=false`: root уже имеет нужные права, запуск sudo не требуется. Эта настройка добавлена в inventory/hosts.ini.example. Если подключаетесь обычным пользователем с sudo, можно ввести пароль вручную через `-K` (или `--ask-become-pass`). Чтобы Ansible брал его из Vault, добавьте пароль в `vault_ansible_become_password` и запускайте с `--ask-vault-pass`; переменная `ansible_become_password` уже связана с ним в vars.yml. Для этого SSH-пользователь должен иметь право sudo. Переменная `bootstrap_admin_passwordless_sudo` задаёт sudo-права создаваемого администратора в конце playbook и не влияет на начального SSH-пользователя.
 
 После применения проверьте вход под новым пользователем, затем измените ansible_user в inventory и проверьте ping. Не переходите к SSH hardening, пока новый вход не подтверждён.
 
