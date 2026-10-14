@@ -114,7 +114,7 @@
         groups: docker
         append: true
         state: present
-      loop: "{{ docker_admin_users }}"
+      loop: "{{ docker_group_users }}"
       tags: [docker, users]
 
     - name: Ensure Docker daemon is enabled and running
