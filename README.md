@@ -45,7 +45,7 @@ ansible-inventory --graph
 ansible all -m ansible.builtin.ping --limit server1
 ~~~
 
-Имя server1 ниже — пример alias из inventory; замените его своим. Если SSH-ключ хранится не по пути из примера, задайте фактический путь к публичному .pub файлу в inventory/group_vars/all/vars.yml.
+Имя server1 ниже — пример alias из inventory; замените его своим. Пути к публичным SSH-ключам для каждого пользователя задаются в managed_users[*].ssh_public_key_paths в inventory/group_vars/all/vars.yml. Эти файлы должны находиться на управляющей машине.
 
 ### 3. Настройте Vault, если он нужен выбранному playbook
 
@@ -151,7 +151,7 @@ ansible-playbook playbooks/bootstrap/system.yml --limit server1
 
 #### playbooks/users/manage_users.yml
 
-Создаёт и обновляет пользователей из списка managed_users в inventory/group_vars/all/vars.yml. У каждого пользователя можно задать shell, дополнительные группы, парольный хэш и несколько путей к SSH public key файлам на управляющей машине. Пользователь с группой sudo получает стандартный sudo с запросом своего пароля; парольless правило не создаётся. Для sudo-группы обязательно задайте password_hash из Vault.
+Создаёт и обновляет пользователей из списка managed_users в inventory/group_vars/all/vars.yml. У каждого пользователя можно задать shell, дополнительные группы, парольный хэш и несколько путей к SSH public key файлам на управляющей машине. Пользователь с группой sudo получает стандартный sudo с запросом своего пароля; правило NOPASSWD не создаётся. Для sudo-группы обязательно задайте password_hash из Vault.
 
 Пример настройки в vars.yml:
 
@@ -326,6 +326,7 @@ inventory/
     vault.example.yml
 playbooks/
   bootstrap/       system.yml, security.yml
+  users/           manage_users.yml
   diagnostics/     host_report.yml
   docker/          docker_engine.yml
   maintenance/     update_all.yml, disk_cleanup.yml
