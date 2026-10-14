@@ -3,12 +3,7 @@
 ansible_become: true
 ansible_become_password: "{{ vault_ansible_become_password | default('') }}"
 
-bootstrap_user_name: operator
-bootstrap_user_password_hash: "{{ vault_bootstrap_user_password_hash | default('') }}"
-bootstrap_user_shell: /bin/bash
-bootstrap_user_groups:
-  - sudo
-bootstrap_ssh_public_key_path: "/root/.ssh/ssh-ed25519.pub"
+managed_users: []
 bootstrap_timezone: Etc/UTC
 bootstrap_locale: en_US.UTF-8
 bootstrap_base_packages:
