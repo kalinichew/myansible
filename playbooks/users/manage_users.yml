@@ -1,0 +1,68 @@
+---
+- name: Manage configured Linux users
+  hosts: all
+  become: true
+  gather_facts: true
+
+  pre_tasks:
+    - name: Verify supported operating system
+      ansible.builtin.assert:
+        that:
+          - ansible_os_family == "Debian"
+          - ansible_distribution in ["Debian", "Ubuntu"]
+        fail_msg: "This playbook supports Debian and Ubuntu only."
+      tags: [always, platform]
+
+    - name: Validate configured user definitions
+      ansible.builtin.assert:
+        that:
+          - item.name is defined
+          - item.name | length > 0
+          - item.name != "root"
+          - item.groups is defined
+          - >-
+            'sudo' not in item.groups or
+            (item.password_hash is defined and item.password_hash | length > 0)
+        fail_msg: >-
+          Each user needs a non-root name and a groups list. Users in the sudo
+          group must have a password hash configured.
+      loop: "{{ managed_users }}"
+      loop_control:
+        label: "{{ item.name | default('unnamed') }}"
+      tags: [always, users]
+
+  tasks:
+    - name: Ensure configured supplementary groups exist
+      ansible.builtin.group:
+        name: "{{ item }}"
+        state: present
+      loop: "{{ managed_users | map(attribute='groups') | flatten | unique | list }}"
+      tags: [users, groups]
+
+    - name: Create or update configured users
+      ansible.builtin.user:
+        name: "{{ item.name }}"
+        shell: "{{ item.shell | default('/bin/bash') }}"
+        password: "{{ item.password_hash | default('!') }}"
+        password_lock: "{{ item.password_hash | default('') | length == 0 }}"
+        update_password: always
+        groups: "{{ item.groups | join(',') }}"
+        append: true
+        create_home: true
+        state: present
+      loop: "{{ managed_users }}"
+      loop_control:
+        label: "{{ item.name }}"
+      no_log: true
+      tags: [users, accounts]
+
+    - name: Install configured SSH public keys
+      ansible.posix.authorized_key:
+        user: "{{ item.0.name }}"
+        state: present
+        key: "{{ lookup('ansible.builtin.file', item.1) }}"
+        exclusive: false
+      loop: "{{ managed_users | subelements('ssh_public_key_paths', skip_missing=True) }}"
+      loop_control:
+        label: "{{ item.0.name }}: {{ item.1 }}"
+      tags: [users, ssh]
