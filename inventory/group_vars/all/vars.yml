@@ -41,7 +41,7 @@ security_ufw_allowed_tcp_ports:
   - 443
 
 # Docker Engine
-docker_admin_users: []
+docker_group_users: []
 docker_daemon_log_max_size: 50m
 docker_daemon_log_max_file: "5"
 docker_daemon_live_restore: true
