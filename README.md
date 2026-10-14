@@ -145,31 +145,61 @@ server1 ansible_host=203.0.113.10 ansible_user=operator
 
 Убедитесь, что публичный ключ этого пользователя уже установлен на сервере, а сам пользователь может выполнять sudo. `ansible_become: true` уже включён в общих переменных репозитория. Для передачи sudo-пароля выберите один способ.
 
-**Запросить пароль при запуске:**
+#### Передача sudo-пароля
 
-~~~bash
+SSH-ключ и sudo-пароль используются на разных этапах: ключ позволяет подключиться к серверу, а sudo-пароль разрешает SSH-пользователю выполнять команды с правами root. У этого пользователя уже должно быть право sudo.
+
+Выберите один из двух способов передать sudo-пароль.
+
+**Вариант 1: вводить sudo-пароль при запуске**
+
+~~~
 ansible-playbook playbooks/bootstrap/system.yml --limit server1 -K
 ~~~
 
-Ansible запросит sudo-пароль пользователя `operator`. Это значение не записывается в inventory или командную строку.
+Флаг `-K` (или `--ask-become-pass`) просит пароль sudo в терминале. Пароль не добавляется в команду или inventory.
 
-**Хранить пароль в Ansible Vault:**
+**Вариант 2: хранить sudo-пароль в Ansible Vault**
 
-В `inventory/group_vars/all/vault.yml` задайте исходный sudo-пароль SSH-пользователя:
+В незашифрованном файле `inventory/group_vars/all/vault.yml` укажите исходный sudo-пароль пользователя, под которым выполняется SSH-подключение:
 
-~~~yaml
+~~~
 ansible_become_password: "SUDO-ПАРОЛЬ-ПОЛЬЗОВАТЕЛЯ-operator"
 ~~~
 
-Зашифруйте файл командой `ansible-vault encrypt inventory/group_vars/all/vault.yml`, затем запускайте:
+Это должен быть сам пароль, не его хэш. Затем зашифруйте файл:
 
-~~~bash
+~~~
+ansible-vault encrypt inventory/group_vars/all/vault.yml
+~~~
+
+Запускайте playbook с запросом пароля Vault:
+
+~~~
 ansible-playbook playbooks/bootstrap/system.yml --limit server1 --ask-vault-pass
 ~~~
 
-`--ask-vault-pass` запрашивает пароль расшифровки Vault. Это отдельный пароль, он не является sudo-паролем. Настройки переменных связывают `ansible_become_password` с `ansible_become_password`, который Ansible использует для sudo. Пароль в Vault должен быть исходным sudo-паролем пользователя, не его хэшем и обычно не паролем root.
+Пароль Vault расшифровывает файл `vault.yml`; sudo-пароль из этого файла Ansible использует для `sudo`. Это два разных пароля.
 
-Сначала можно проверить изменения через `--check --diff` (при использовании Vault добавьте `--ask-vault-pass`, при ручном вводе sudo — `-K`). Запускайте на тестовом сервере и ограничивайте хост через `--limit`.
+**Почему Vault запрашивается, даже если system.yml не использует секреты?**
+
+Ansible автоматически загружает переменные из `inventory/group_vars/all/` для хостов выбранного inventory. Если там лежит зашифрованный `vault.yml`, Ansible должен расшифровать его ещё до выполнения playbook. Поэтому для такого inventory пароль Vault требуется и при запуске `system.yml`, хотя в самом playbook секреты не задействованы. Флаг `-K` запрашивает только sudo-пароль и не расшифровывает Vault.
+
+Если хотите вводить sudo-пароль через `-K`, а не брать его из Vault, удалите или закомментируйте `ansible_become_password` в `vault.yml` и передайте оба пароля:
+
+~~~
+ansible-playbook playbooks/bootstrap/system.yml --limit server1 --ask-vault-pass -K
+~~~
+
+Здесь Ansible сначала запросит пароль Vault для чтения остальных переменных, а затем отдельно запросит sudo-пароль. Если в Vault уже задан `ansible_become_password`, используйте `--ask-vault-pass` без `-K`, чтобы Ansible взял sudo-пароль из Vault.
+
+Для проверочного запуска с показом предполагаемых изменений добавьте `-CD`. Например, при sudo-пароле из Vault:
+
+~~~
+ansible-playbook playbooks/bootstrap/system.yml --limit server1 --ask-vault-pass -CD
+~~~
+
+`-C` включает check mode, `-D` показывает diff; эти флаги не заменяют пароль Vault или sudo.
 
 ### Управление пользователями
 
