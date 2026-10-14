@@ -73,10 +73,10 @@ vault_managed_user_password_hashes:
 Чтобы Ansible при запуске `system.yml` автоматически вводил sudo-пароль существующего SSH-пользователя, укажите его исходный пароль (именно пароль, не хэш):
 
 ~~~yaml
-vault_ansible_become_password: "ИСХОДНЫЙ_ПАРОЛЬ_OPERATOR"
+ansible_become_password: "ИСХОДНЫЙ_ПАРОЛЬ_OPERATOR"
 ~~~
 
-Если пароль не хотите хранить в Vault, не задавайте `vault_ansible_become_password` и запускайте playbook с `-K`: Ansible запросит пароль sudo в терминале. Важно: SSH-пользователь уже должен иметь право sudo на целевой машине.
+Если пароль не хотите хранить в Vault, удалите или закомментируйте `ansible_become_password` в `vault.yml` и запускайте playbook с `-K`: Ansible запросит пароль sudo в терминале. Используйте один способ передачи пароля за запуск. Важно: SSH-пользователь уже должен иметь право sudo на целевой машине.
 
 #### Шаг 2. Получите хэш пароля
 
@@ -88,7 +88,7 @@ openssl passwd -6
 
 Скопируйте выведенную строку целиком в vault_managed_user_password_hashes под соответствующим именем. Например, хэш для пользователя operator должен быть доступен в словаре по ключу operator. Исходный пароль сохраните для самого пользователя, чтобы он мог вводить его при sudo.
 
-Хэш — не шифрование Vault. Команда создаёт значение, которое Linux использует для проверки пароля; из него нельзя получить исходный пароль. Если Ansible должен сам выполнять sudo, ему отдельно нужен исходный пароль в vault_ansible_become_password.
+Хэш — не шифрование Vault. Команда создаёт значение, которое Linux использует для проверки пароля; из него нельзя получить исходный пароль. Если Ansible должен сам выполнять sudo, ему отдельно нужен исходный пароль в ansible_become_password.
 
 #### Шаг 3. Зашифруйте файл Vault
 
@@ -158,7 +158,7 @@ Ansible запросит sudo-пароль пользователя `operator`. 
 В `inventory/group_vars/all/vault.yml` задайте исходный sudo-пароль SSH-пользователя:
 
 ~~~yaml
-vault_ansible_become_password: "SUDO-ПАРОЛЬ-ПОЛЬЗОВАТЕЛЯ-operator"
+ansible_become_password: "SUDO-ПАРОЛЬ-ПОЛЬЗОВАТЕЛЯ-operator"
 ~~~
 
 Зашифруйте файл командой `ansible-vault encrypt inventory/group_vars/all/vault.yml`, затем запускайте:
@@ -167,7 +167,7 @@ vault_ansible_become_password: "SUDO-ПАРОЛЬ-ПОЛЬЗОВАТЕЛЯ-opera
 ansible-playbook playbooks/bootstrap/system.yml --limit server1 --ask-vault-pass
 ~~~
 
-`--ask-vault-pass` запрашивает пароль расшифровки Vault. Это отдельный пароль, он не является sudo-паролем. Настройки переменных связывают `vault_ansible_become_password` с `ansible_become_password`, который Ansible использует для sudo. Пароль в Vault должен быть исходным sudo-паролем пользователя, не его хэшем и обычно не паролем root.
+`--ask-vault-pass` запрашивает пароль расшифровки Vault. Это отдельный пароль, он не является sudo-паролем. Настройки переменных связывают `ansible_become_password` с `ansible_become_password`, который Ansible использует для sudo. Пароль в Vault должен быть исходным sudo-паролем пользователя, не его хэшем и обычно не паролем root.
 
 Сначала можно проверить изменения через `--check --diff` (при использовании Vault добавьте `--ask-vault-pass`, при ручном вводе sudo — `-K`). Запускайте на тестовом сервере и ограничивайте хост через `--limit`.
 
@@ -200,7 +200,7 @@ managed_users:
 ansible-playbook playbooks/users/manage_users.yml --limit server1 --ask-vault-pass
 ~~~
 
-Для управления пользователями также требуется sudo. Используйте тот же способ передачи sudo-пароля: зашифрованный `vault_ansible_become_password` с `--ask-vault-pass` либо интерактивный запрос `-K`. Создавать новые учётные записи этот playbook будет только по списку `managed_users`. Не добавляйте пользователя в группу docker, если ему не нужны root-подобные полномочия без sudo.
+Для управления пользователями также требуется sudo. Используйте тот же способ передачи sudo-пароля: зашифрованный `ansible_become_password` с `--ask-vault-pass` либо интерактивный запрос `-K`. Создавать новые учётные записи этот playbook будет только по списку `managed_users`. Не добавляйте пользователя в группу docker, если ему не нужны root-подобные полномочия без sudo.
 
 #### playbooks/bootstrap/security.yml
 
