@@ -1,5 +1,5 @@
 ---
-- name: Configure base system and administrator
+- name: Configure base system and create a sudo user
   hosts: all
   become: true
   gather_facts: true
@@ -13,14 +13,15 @@
         fail_msg: "This playbook supports Debian and Ubuntu only."
       tags: [always, platform]
 
-    - name: Verify administrator is not root
+    - name: Verify new user configuration
       ansible.builtin.assert:
         that:
-          - bootstrap_admin_user | length > 0
-          - bootstrap_admin_user != "root"
-          - bootstrap_admin_password_hash | length > 0
-          - bootstrap_admin_groups | length > 0
-        fail_msg: "Set a non-root bootstrap_admin_user, admin group, and password hash in Ansible Vault."
+          - bootstrap_user_name | length > 0
+          - bootstrap_user_name != "root"
+          - bootstrap_user_password_hash | length > 0
+          - bootstrap_user_groups | length > 0
+          - "'sudo' in bootstrap_user_groups"
+        fail_msg: "Set a non-root user name, password hash, and sudo group in Ansible Vault/vars."
       tags: [always, users]
 
     - name: Verify SSH public key exists on the Ansible controller
@@ -58,41 +59,30 @@
         state: present
       tags: [config, locale]
 
-    - name: Ensure administrator groups exist
+    - name: Ensure user groups exist
       ansible.builtin.group:
         name: "{{ item }}"
         state: present
-      loop: "{{ bootstrap_admin_groups }}"
+      loop: "{{ bootstrap_user_groups }}"
       tags: [users, config]
 
-    - name: Create non-root administrator
+    - name: Create regular user with sudo access
       ansible.builtin.user:
-        name: "{{ bootstrap_admin_user }}"
-        shell: "{{ bootstrap_admin_shell }}"
-        password: "{{ bootstrap_admin_password_hash }}"
+        name: "{{ bootstrap_user_name }}"
+        shell: "{{ bootstrap_user_shell }}"
+        password: "{{ bootstrap_user_password_hash }}"
         update_password: always
         password_lock: false
-        groups: "{{ bootstrap_admin_groups | join(',') }}"
+        groups: "{{ bootstrap_user_groups | join(',') }}"
         append: true
         create_home: true
         state: present
       no_log: true
       tags: [users, config]
 
-    - name: Configure administrator sudo policy
-      ansible.builtin.copy:
-        dest: "/etc/sudoers.d/{{ bootstrap_admin_user }}"
-        content: |
-          {{ bootstrap_admin_user }} ALL=(ALL) {{ 'NOPASSWD:' if bootstrap_admin_passwordless_sudo else '' }}ALL
-        owner: root
-        group: root
-        mode: "0440"
-        validate: "visudo -cf %s"
-      tags: [users, sudo, config]
-
-    - name: Install administrator SSH public key
+    - name: Install user's SSH public key
       ansible.posix.authorized_key:
-        user: "{{ bootstrap_admin_user }}"
+        user: "{{ bootstrap_user_name }}"
         state: present
         key: "{{ lookup('ansible.builtin.file', bootstrap_ssh_public_key_path) }}"
         exclusive: false
