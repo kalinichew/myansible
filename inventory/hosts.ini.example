@@ -1,10 +1,9 @@
 # Copy to hosts.ini and replace the example address and SSH user.
+# The SSH user's public key must already be installed on the target,
+# and the user must be allowed to run sudo.
 # Keep hosts.ini private; it is excluded from Git.
-[bootstrap]
-server1 ansible_host=203.0.113.10 ansible_user=root ansible_become=false
-
-[debian_servers:children]
-bootstrap
+[debian_servers]
+server1 ansible_host=203.0.113.10 ansible_user=operator
 
 [debian_servers:vars]
 ansible_python_interpreter=/usr/bin/python3
