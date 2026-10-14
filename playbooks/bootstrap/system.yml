@@ -1,5 +1,5 @@
 ---
-- name: Configure base system and create a sudo user
+- name: Prepare Debian or Ubuntu operating system
   hosts: all
   become: true
   gather_facts: true
@@ -12,28 +12,6 @@
           - ansible_distribution in ["Debian", "Ubuntu"]
         fail_msg: "This playbook supports Debian and Ubuntu only."
       tags: [always, platform]
-
-    - name: Verify new user configuration
-      ansible.builtin.assert:
-        that:
-          - bootstrap_user_name | length > 0
-          - bootstrap_user_name != "root"
-          - bootstrap_user_password_hash | length > 0
-          - bootstrap_user_groups | length > 0
-          - "'sudo' in bootstrap_user_groups"
-        fail_msg: "Set a non-root user name, password hash, and sudo group in Ansible Vault/vars."
-      tags: [always, users]
-
-    - name: Verify SSH public key exists on the Ansible controller
-      ansible.builtin.assert:
-        that:
-          - lookup('ansible.builtin.file', bootstrap_ssh_public_key_path, errors='ignore') | trim | length > 0
-        fail_msg: >-
-          No public key was found at {{ bootstrap_ssh_public_key_path }}.
-          Set bootstrap_ssh_public_key_path to an existing .pub file.
-      become: false
-      run_once: true
-      tags: [always, ssh, users]
 
   tasks:
     - name: Refresh APT package cache
@@ -58,32 +36,3 @@
         name: "{{ bootstrap_locale }}"
         state: present
       tags: [config, locale]
-
-    - name: Ensure user groups exist
-      ansible.builtin.group:
-        name: "{{ item }}"
-        state: present
-      loop: "{{ bootstrap_user_groups }}"
-      tags: [users, config]
-
-    - name: Create regular user with sudo access
-      ansible.builtin.user:
-        name: "{{ bootstrap_user_name }}"
-        shell: "{{ bootstrap_user_shell }}"
-        password: "{{ bootstrap_user_password_hash }}"
-        update_password: always
-        password_lock: false
-        groups: "{{ bootstrap_user_groups | join(',') }}"
-        append: true
-        create_home: true
-        state: present
-      no_log: true
-      tags: [users, config]
-
-    - name: Install user's SSH public key
-      ansible.posix.authorized_key:
-        user: "{{ bootstrap_user_name }}"
-        state: present
-        key: "{{ lookup('ansible.builtin.file', bootstrap_ssh_public_key_path) }}"
-        exclusive: false
-      tags: [users, ssh, config]
