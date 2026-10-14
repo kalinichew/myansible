@@ -108,7 +108,7 @@
         state: present
       tags: [docker, users]
 
-    - name: Add configured administrators to Docker group
+    - name: Add explicitly configured users to Docker group
       ansible.builtin.user:
         name: "{{ item }}"
         groups: docker
