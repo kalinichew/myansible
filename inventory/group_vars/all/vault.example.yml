@@ -2,5 +2,5 @@
 # Copy to vault.yml, replace every placeholder, then encrypt with ansible-vault.
 # Never put actual secrets in this example file.
 vault_managed_user_password_hashes: {}
-vault_ansible_become_password: "REPLACE_WITH_SSH_USER_SUDO_PASSWORD"
+ansible_become_password: "REPLACE_WITH_SSH_USER_SUDO_PASSWORD"
 vault_vector_sink_auth_token: "REPLACE_WITH_SINK_TOKEN"
