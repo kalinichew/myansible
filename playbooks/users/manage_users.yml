@@ -46,7 +46,7 @@
         password: "{{ item.password_hash | default('!') }}"
         password_lock: "{{ item.password_hash | default('') | length == 0 }}"
         update_password: always
-        groups: "{{ item.groups | join(',') }}"
+        groups: "{{ item.groups | join(',') if item.groups else omit }}"
         append: true
         create_home: true
         state: present
