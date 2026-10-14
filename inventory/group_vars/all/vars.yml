@@ -1,6 +1,7 @@
 ---
 # This repository targets Debian and Ubuntu hosts.
 ansible_become: true
+ansible_become_password: "{{ vault_ansible_become_password | default('') }}"
 
 bootstrap_admin_user: test
 bootstrap_admin_password_hash: "{{ vault_bootstrap_admin_password_hash | default('') }}"
