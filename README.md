@@ -1,6 +1,6 @@
 # myansible
 
-В репозитории собраны Ansible playbook для настройки и обслуживания серверов Debian/Ubuntu, а также для установки и проверки сервисов в Kubernetes. Выберите нужный сценарий по описанию ниже и запустите его для своих серверов или кластера.
+В репозитории собраны Ansible playbook для первичной настройки и обслуживания серверов Debian/Ubuntu. Каждый playbook решает отдельную задачу — выберите нужный сценарий по описанию и запустите его для своих серверов.
 
 > [!WARNING]
 > Некоторые сценарии меняют SSH и firewall, очищают данные, перезапускают службы или перезагружают сервер. Сначала проверьте target и переменные, запускайте на одном тестовом хосте через --limit. Сохраняйте текущую SSH-сессию до проверки нового входа.
@@ -10,7 +10,6 @@
 - [Настройка окружения](#настройка-окружения)
 - [Общие переменные и секреты](#общие-переменные-и-секреты)
 - [Playbook для Linux](#playbook-для-linux)
-- [Playbook для Kubernetes](#playbook-для-kubernetes)
 - [Проверка, диагностика и известные ограничения](#проверка-диагностика-и-известные-ограничения)
 
 ## Настройка окружения
@@ -28,17 +27,6 @@ ansible-galaxy collection install -r collections/requirements.yml
 ~~~
 
 Если команда создания виртуальной среды недоступна, установите пакет Python venv для своего дистрибутива.
-
-Для Kubernetes playbook дополнительно нужны Helm CLI, kubectl и Python-библиотеки Kubernetes/PyYAML:
-
-~~~bash
-python -m pip install kubernetes PyYAML
-helm version
-kubectl config current-context
-kubectl get nodes
-~~~
-
-Kubernetes-сценарии работают с уже существующим кластером через kubeconfig. Они не создают control plane, ingress или внешний LoadBalancer.
 
 ### 2. Создайте inventory для серверов
 
@@ -79,11 +67,7 @@ vault_bootstrap_admin_password_hash: "$6$ВСТАВЬТЕ_СЮДА_ХЭШ"
 Для других сценариев в этот же YAML-файл добавляются нужные значения:
 
 ~~~yaml
-vault_postgres_app_password: "ПАРОЛЬ_ПОЛЬЗОВАТЕЛЯ_БАЗЫ"
 vault_vector_sink_auth_token: "ТОКЕН_ВАШЕГО_SINK"
-vault_awx_admin_password: "ПАРОЛЬ_АДМИНИСТРАТОРА_AWX"
-vault_awx_secret_key: "СЛУЧАЙНЫЙ_СЕКРЕТНЫЙ_КЛЮЧ_НЕ_КОРОЧЕ_32_СИМВОЛОВ"
-vault_jenkins_admin_password: "ПАРОЛЬ_АДМИНИСТРАТОРА_JENKINS"
 ~~~
 
 Замените примеры настоящими секретами. Не оставляйте строки REPLACE_... из шаблона. Указывайте строки в кавычках и не публикуйте незашифрованный vault.yml.
@@ -116,11 +100,9 @@ ansible-playbook playbooks/bootstrap/system.yml --limit server1 --ask-vault-pass
 
 Если playbook не использует Vault-переменные, этот параметр не нужен. Перед коммитом убедитесь, что в Git попал только vault.example.yml, а зашифрованный vault.yml не добавлен: проверьте git status. Если нужно изменить секреты позже, сначала выполните ansible-vault edit inventory/group_vars/all/vault.yml; Ansible откроет расшифрованное содержимое во временном редакторе и сохранит файл снова зашифрованным.
 
-### 4. Выберите область работы
+### 4. Выберите сервер
 
-- Linux-хосты задаются в inventory. Большинство серверных playbook используют hosts: all, поэтому ограничивайте запуск через --limit.
-- Kubernetes playbook запускаются локально на управляющей машине и используют kubeconfig. Проверьте текущий контекст, namespace и права пользователя до запуска.
-- Для AWX, Kafka и Jenkins storage class должен существовать заранее. Хранилища кластера и сам Kubernetes-кластер playbook не создаёт.
+Linux-хосты задаются в inventory. Большинство серверных playbook используют hosts: all, поэтому ограничивайте запуск через --limit и сначала проверяйте его на одном тестовом сервере.
 
 ## Общие переменные и секреты
 
@@ -138,8 +120,6 @@ ansible-playbook playbooks/bootstrap/system.yml --limit server1 --ask-vault-pass
 | vps_hostname, vps_timezone, xray_port, xray_sni, xray_dest, xray_public_host, xray_update | Xray VLESS + Reality |
 | node_exporter_version, node_exporter_port, node_exporter_listen_address, node_exporter_sha256 | Node Exporter |
 | vector_sink_url, vector_data_dir | Vector; токен берётся из Vault |
-| postgres_*, db_backup_* | PostgreSQL и S3 backup |
-| k8s_kubeconfig, awx_*, kafka_*, jenkins_* | Kubernetes playbook |
 
 ## Playbook для Linux
 
@@ -249,31 +229,6 @@ ansible-playbook playbooks/observability/vector_shipper.yml --limit server1 --as
 
 Vector добавляется в группы systemd-journal и docker для чтения журналов. Доступ к группе docker даёт широкие полномочия; запускайте эту схему только на доверенных серверах.
 
-### База данных и резервные копии
-
-#### playbooks/database/postgres_standalone.yml
-
-Устанавливает PostgreSQL, применяет параметры памяти и соединений, создаёт прикладную роль и базу. Перед запуском задайте postgres_database, postgres_role и Vault-переменную vault_postgres_app_password. Значения памяти из vars.yml — только отправная точка, подберите их под RAM сервера и нагрузку.
-
-~~~bash
-ansible-playbook playbooks/database/postgres_standalone.yml --limit server1 --ask-vault-pass
-~~~
-
-Сценарий не открывает PostgreSQL для внешней сети и не создаёт firewall-правило на 5432.
-
-#### playbooks/database/db_backup_s3.yml
-
-Планирует systemd timer для pg_dump, zstd-сжатия, загрузки в S3 с SSE-S3 и хранения локальных копий с заданным сроком очистки. Требует установленный PostgreSQL, заполненные db_backup_s3_bucket, db_backup_aws_region и db_backup_s3_prefix. Предпочтительный способ авторизации в AWS — IAM role с минимальными правами к нужному bucket/prefix; статические ключи playbook не задаёт.
-
-Планировщик по умолчанию запускается ежедневно в 02:30 по локальному времени сервера с дополнительной случайной задержкой до 15 минут. Настройка расписания хранится в db_backup_schedule.
-
-~~~bash
-ansible-playbook playbooks/database/db_backup_s3.yml --limit server1
-~~~
-
-> [!CAUTION]
-> Обнаружен блокер: backup-скрипт создаётся с владельцем root:root и режимом 0750, тогда как systemd запускает его пользователем postgres. Этот пользователь не может выполнить скрипт, поэтому timer не создаст резервные копии. Исправьте владельца/группу или права файла в playbooks/database/db_backup_s3.yml до использования сценария и проверьте успешный тестовый backup и восстановление.
-
 ### Обслуживание и диагностика
 
 #### playbooks/maintenance/update_all.yml
@@ -302,64 +257,6 @@ ansible-playbook playbooks/maintenance/disk_cleanup.yml --limit server1
 ansible-playbook playbooks/diagnostics/host_report.yml --limit server1
 ~~~
 
-## Playbook для Kubernetes
-
-Все Kubernetes playbook работают на localhost через kubeconfig. До применения проверьте context и хранилища:
-
-~~~bash
-kubectl config current-context
-kubectl get nodes
-kubectl get storageclass
-~~~
-
-Переменная k8s_kubeconfig берётся из KUBECONFIG или по умолчанию из ~/.kube/config. Путь к альтернативному kubeconfig задайте в inventory/group_vars/all/devops.yml.
-
-### playbooks/kubernetes/awx.yml
-
-Устанавливает Helm chart AWX Operator версии awx_operator_chart_version, создаёт Secrets для пароля администратора и ключа шифрования, затем AWX custom resource. Нужен существующий StorageClass в awx_storage_class и сильные Vault-значения vault_awx_admin_password и vault_awx_secret_key. Секретный ключ AWX сохраняйте постоянно: его замена может лишить доступа к уже зашифрованным данным.
-
-~~~bash
-ansible-playbook playbooks/kubernetes/awx.yml --ask-vault-pass
-kubectl -n awx get pods
-kubectl -n awx port-forward svc/awx-service 8080:80
-~~~
-
-Откройте http://127.0.0.1:8080. Service остаётся ClusterIP. Для внешнего доступа отдельно установите ingress/reverse proxy с TLS и аутентификацией. Playbook не настраивает backup AWX или его PostgreSQL.
-
-### playbooks/kubernetes/kafka_strimzi.yml
-
-Устанавливает Strimzi Helm chart заданной версии и создаёт Kafka-кластер в KRaft, отдельные controller и broker pools, topic и SCRAM-пользователя с ACL. По умолчанию задаются три controller, три broker, три partition и persistent volume для каждой ноды. Нужен storage class в kafka_storage_class и достаточные CPU, RAM и дисковая ёмкость кластера.
-
-Проверка требует не менее трёх controller и broker, а kafka_broker_replicas должно быть не меньше kafka_topic_partitions.
-
-~~~bash
-ansible-playbook playbooks/kubernetes/kafka_strimzi.yml
-kubectl -n kafka get pods
-kubectl -n kafka get kafka,kafkanodepool,kafkatopic,kafkauser
-~~~
-
-Внутрикластерный bootstrap address: events-kafka-bootstrap.kafka.svc:9093. Подключение использует TLS и SCRAM-SHA-512. Сгенерированный пароль находится в Secret с именем, заданным в kafka_app_user. Внешний listener не создаётся; публикуйте Kafka только после отдельной настройки сетевой защиты.
-
-### playbooks/kubernetes/jenkins.yml
-
-Создаёт Jenkins как StatefulSet с одним controller pod, persistent home volume и ClusterIP. Контейнер работает без root и с ограниченными Linux capabilities. Нужны jenkins_storage_class и Vault-переменная vault_jenkins_admin_password.
-
-~~~bash
-ansible-playbook playbooks/kubernetes/jenkins.yml --ask-vault-pass
-kubectl -n jenkins rollout status statefulset/jenkins
-kubectl -n jenkins port-forward svc/jenkins 8080:8080
-~~~
-
-Откройте http://127.0.0.1:8080. Внешний ingress, backup volume, плагины и build agents не настраиваются этим playbook. Инициализационный Groovy-скрипт создаёт пользователя, только если его ещё нет; изменение пароля в Vault не меняет пароль уже созданного пользователя Jenkins.
-
-### playbooks/kubernetes/cluster_health.yml
-
-Read-only отчёт по числу nodes и pods, pods не в состояниях Running/Succeeded и Warning events. Kubeconfig должен иметь права чтения этих ресурсов во всех нужных namespaces.
-
-~~~bash
-ansible-playbook playbooks/kubernetes/cluster_health.yml
-~~~
-
 ## Проверка, диагностика и известные ограничения
 
 Сначала проверяйте синтаксис конкретного playbook:
@@ -374,11 +271,9 @@ ansible-playbook playbooks/<путь>/<имя>.yml --syntax-check
 
 Известные ограничения текущей реализации:
 
-- S3 backup не заработает, пока не исправлены права на backup-скрипт; подробности указаны в его разделе.
 - Xray playbook включает UFW с ограниченным списком разрешённых портов и может закрыть порты других приложений.
 - Xray installer не закреплён по версии и checksum.
 - Docker-группа и доступ Vector к Docker socket дают широкие права на хосте.
-- AWX и Jenkins требуют отдельного плана backup/restore для persistent data.
 - WireGuard playbook настраивает mesh-интерфейс, но не IP forwarding или NAT.
 
 ## Файлы проекта
@@ -390,14 +285,11 @@ inventory/
   hosts.ini.example
   group_vars/all/
     vars.yml
-    devops.yml
     vault.example.yml
 playbooks/
   bootstrap/       system.yml, security.yml
-  database/        postgres_standalone.yml, db_backup_s3.yml
   diagnostics/     host_report.yml
   docker/          docker_engine.yml
-  kubernetes/      awx.yml, kafka_strimzi.yml, jenkins.yml, cluster_health.yml
   maintenance/     update_all.yml, disk_cleanup.yml
   network/         wireguard.yml, nginx_proxy.yml, xray_reality.yml
   observability/   node_exporter.yml, vector_shipper.yml
