@@ -1,6 +1,6 @@
 # myansible
 
-В репозитории собраны Ansible playbook для первичной настройки и обслуживания серверов Debian/Ubuntu. Каждый playbook решает отдельную задачу — выберите нужный сценарий по описанию и запустите его для своих серверов.
+В репозитории собраны отдельные Ansible playbook для подготовки и обслуживания серверов Debian/Ubuntu. Настройка ОС и управление пользователями разделены: при необходимости можно запустить только system.yml.
 
 > [!WARNING]
 > Некоторые сценарии меняют SSH и firewall, очищают данные, перезапускают службы или перезагружают сервер. Сначала проверьте target и переменные, запускайте на одном тестовом хосте через --limit. Сохраняйте текущую SSH-сессию до проверки нового входа.
@@ -47,73 +47,64 @@ ansible all -m ansible.builtin.ping --limit server1
 
 Имя server1 ниже — пример alias из inventory; замените его своим. Если SSH-ключ хранится не по пути из примера, задайте фактический путь к публичному .pub файлу в inventory/group_vars/all/vars.yml.
 
-### 3. Подготовьте секреты и зашифруйте Vault
+### 3. Настройте Vault, если он нужен выбранному playbook
 
-Playbook создаёт обычную учётную запись пользователя и добавляет её в группу sudo. Команды выполняются с обычными правами; для действий от root пользователь явно запускает sudo, который запрашивает его пароль. Файл sudoers с правилом NOPASSWD не создаётся.
+Подготовка ОС сама по себе не требует Vault: если вы подключаетесь по SSH как root и в inventory стоит ansible_become=false, достаточно запустить system.yml. Vault нужен, когда playbook использует секреты — например, при создании пользователя с паролем или при автоматическом вводе sudo-пароля Ansible.
 
-Для этой настройки важны три значения:
+Здесь важно различать три значения:
 
-- Пароль создаваемого пользователя задаётся в Linux в виде SHA-512 хэша. Хэш нужен системе для проверки пароля при sudo и входе.
-- Ansible при подключении к серверу под обычным пользователем может автоматически передать sudo его исходный пароль через ansible_become_password. Для этого нужен пароль в открытом виде внутри Vault; хэш сюда не подходит. Обычно это тот же пароль, из которого был получен хэш для нового пользователя.
-- Пароль Vault — отдельный пароль, который расшифровывает файл с секретами. Он не является ни паролем пользователя, ни его хэшем.
+- Хэш пароля пользователя — односторонний SHA-512 хэш, который Linux сохраняет для проверки пароля. Он задаётся в vault_managed_user_password_hashes.
+- Пароль пользователя для sudo — исходный пароль. Если Ansible подключается под этим пользователем и должен сам выполнить sudo, этот пароль задаётся в vault_ansible_become_password. Хэш вместо него не подойдёт. Обычно это пароль SSH-пользователя, который вводят при sudo.
+- Пароль Vault — отдельный пароль, которым Ansible расшифровывает весь файл vault.yml во время запуска.
 
-#### Шаг 1. Создайте файл из шаблона
+#### Шаг 1. Создайте рабочий файл Vault из шаблона
 
 ~~~bash
 cp inventory/group_vars/all/vault.example.yml inventory/group_vars/all/vault.yml
 ~~~
 
-До шифрования файл — обычный YAML. Заполните в нём хэш нового пользователя. Если позже Ansible будет подключаться под ним и должен вводить sudo-пароль автоматически, добавьте также исходный пароль в vault_ansible_become_password:
+До шифрования файл — обычный YAML. Если вы создаёте пользователя, которому нужно sudo, сгенерируйте его парольный хэш командой ниже и добавьте его в словарь по имени пользователя:
 
 ~~~yaml
----
-vault_bootstrap_user_password_hash: "$6$ВСТАВЬТЕ_SHA512_ХЭШ"
-vault_ansible_become_password: "ИСХОДНЫЙ_ПАРОЛЬ_ПОЛЬЗОВАТЕЛЯ"
+vault_managed_user_password_hashes:
+  operator: "$6$ВСТАВЬТЕ_SHA512_ХЭШ"
 ~~~
 
-При первом запуске из примера inventory используется root с ansible_become=false, поэтому vault_ansible_become_password для этого запуска не требуется. Не храните незашифрованный vault.yml в Git.
+Если позже Ansible будет подключаться как operator и должен автоматически выполнять sudo, сохраните исходный пароль этого пользователя отдельно:
 
-#### Шаг 2. Создайте хэш пароля пользователя
+~~~yaml
+vault_ansible_become_password: "ИСХОДНЫЙ_ПАРОЛЬ_OPERATOR"
+~~~
 
-Придумайте пароль для нового пользователя и передайте его команде. Введите пароль в её запрос:
+Если Ansible подключается как root с ansible_become=false или вы готовы вводить sudo-пароль вручную через -K, vault_ansible_become_password не нужен.
+
+#### Шаг 2. Получите хэш пароля
+
+Придумайте пароль пользователя и введите его в команду:
 
 ~~~bash
 openssl passwd -6
 ~~~
 
-Команда выведет SHA-512 хэш, начинающийся с $6$. Скопируйте всю строку в vault_bootstrap_user_password_hash. Этот хэш Ansible установит пользователю; вручную вводить его при sudo не нужно.
+Скопируйте выведенную строку целиком в vault_managed_user_password_hashes под соответствующим именем. Например, хэш для пользователя operator должен быть доступен в словаре по ключу operator. Исходный пароль сохраните для самого пользователя, чтобы он мог вводить его при sudo.
 
-Если Ansible в дальнейшем будет подключаться под этим пользователем и должен сам выполнять sudo, сохраните исходный пароль, который вы ввели в openssl, в vault_ansible_become_password. Это отдельное значение: в него вставляется сам пароль, не хэш. Если не хотите хранить исходный пароль даже в зашифрованном Vault, не заполняйте эту переменную и используйте -K при запуске Ansible, чтобы вводить sudo-пароль вручную.
+Хэш — не шифрование Vault. Команда создаёт значение, которое Linux использует для проверки пароля; из него нельзя получить исходный пароль. Если Ansible должен сам выполнять sudo, ему отдельно нужен исходный пароль в vault_ansible_become_password.
 
-#### Шаг 3. Зашифруйте файл
+#### Шаг 3. Зашифруйте файл Vault
 
 ~~~bash
 ansible-vault encrypt inventory/group_vars/all/vault.yml
 ~~~
 
-Ansible запросит пароль Vault. Сохраните его отдельно в менеджере паролей. Команда зашифрует весь файл, включая исходный sudo-пароль и хэш пользователя. При запуске Ansible расшифрует его в памяти после ввода пароля Vault.
+Ansible запросит пароль Vault. Сохраните его отдельно. Команда шифрует файл целиком — в том числе словарь с хэшами и исходный sudo-пароль. Перед запуском Ansible расшифрует файл в памяти после ввода пароля Vault.
 
-Чтобы изменить секреты после шифрования, используйте:
+Чтобы изменить секреты после шифрования, выполните:
 
 ~~~bash
 ansible-vault edit inventory/group_vars/all/vault.yml
 ~~~
 
-Команда откроет расшифрованное содержимое в редакторе и зашифрует его снова после сохранения.
-
-#### Шаг 4. Создайте пользователя и проверьте доступ
-
-Первый запуск из примера выполняется через root и не требует sudo-пароля:
-
-~~~bash
-ansible-playbook playbooks/bootstrap/system.yml --limit server1 --ask-vault-pass
-~~~
-
-Введите пароль Vault. Playbook создаст пользователя с SSH-ключом и членством в группе sudo. После запуска проверьте вход по SSH под новым пользователем. Команды, требующие root, запускайте через sudo; sudo запросит пароль этого пользователя.
-
-Перед последующим подключением Ansible под новым пользователем задайте его в inventory. Если vault_ansible_become_password заполнен, достаточно --ask-vault-pass: Ansible сам передаст пароль sudo. Если он не заполнен, добавьте -K и введите пароль вручную.
-
-В этом репозитории vault.yml исключён из Git. В репозитории должен оставаться только vault.example.yml с пустыми или примерными значениями.
+Ansible откроет расшифрованное содержимое в редакторе и зашифрует файл снова после сохранения. В этом репозитории vault.yml исключён из Git; храните в Git только vault.example.yml с примерными значениями.
 
 ### 4. Выберите сервер
 
@@ -127,7 +118,8 @@ Linux-хосты задаются в inventory. Большинство серв�
 
 | Переменные | Используются в |
 |---|---|
-| bootstrap_user_*, bootstrap_ssh_public_key_path, bootstrap_timezone, bootstrap_locale, ansible_become_password | Создание пользователя и sudo |
+| bootstrap_timezone, bootstrap_locale, bootstrap_base_packages | Подготовка ОС |
+| managed_users, vault_managed_user_password_hashes, ansible_become_password | Пользователи и sudo |
 | security_ssh_*, security_ufw_allowed_tcp_ports, security_fail2ban_* | SSH, Fail2ban и UFW |
 | docker_group_users, docker_daemon_* | Docker |
 | wireguard_interface, wireguard_address, wireguard_listen_port, wireguard_peers | WireGuard |
@@ -140,24 +132,51 @@ Linux-хосты задаются в inventory. Большинство серв�
 
 В командах ниже используется inventory, настроенный в ansible.cfg. Все серверные playbook рассчитаны на Debian и Ubuntu.
 
-### Первичная настройка сервера
+### Подготовка операционной системы
 
-Название каталога bootstrap означает начальную подготовку сервера: создание пользователя с доступом через sudo и установку базовых настроек перед дальнейшей работой.
+Название каталога bootstrap обозначает начальную настройку ОС. Этот playbook не создаёт пользователей и не требует пользовательских паролей или Vault. Он обновляет кэш APT, устанавливает базовые пакеты, настраивает часовой пояс и локаль.
 
 #### playbooks/bootstrap/system.yml
 
-Создаёт пользователя, добавляет его в группу sudo, добавляет его SSH-ключ, устанавливает базовые пакеты и настраивает часовой пояс и локаль.
-
-Перед запуском укажите bootstrap_user_name, путь bootstrap_ssh_public_key_path и Vault-переменную vault_bootstrap_user_password_hash. Имя по умолчанию operator — замените его своим.
+Запускайте его на чистой Debian/Ubuntu системе, подключившись под root с ansible_become=false, как указано в inventory/hosts.ini.example:
 
 ~~~bash
-ansible-playbook playbooks/bootstrap/system.yml --limit server1 --ask-vault-pass --check --diff
-ansible-playbook playbooks/bootstrap/system.yml --limit server1 --ask-vault-pass
+ansible-playbook playbooks/bootstrap/system.yml --limit server1 --check --diff
+ansible-playbook playbooks/bootstrap/system.yml --limit server1
 ~~~
 
-Playbook требует права root. Если подключаетесь по SSH как root, укажите в inventory `ansible_become=false`: root уже имеет нужные права, запуск sudo не требуется. Эта настройка добавлена в inventory/hosts.ini.example. Если подключаетесь обычным пользователем с sudo, можно ввести пароль вручную через `-K` (или `--ask-become-pass`). Чтобы Ansible брал его из Vault, добавьте пароль в `vault_ansible_become_password` и запускайте с `--ask-vault-pass`; переменная `ansible_become_password` уже связана с ним в vars.yml. Для этого SSH-пользователь должен иметь право sudo. Пользователь добавляется в группу sudo; стандартная настройка Debian/Ubuntu запрашивает пароль при повышении прав.
+Этот сценарий можно использовать отдельно, когда нужно подготовить ОС, но не создавать пользователей.
 
-После применения проверьте вход под новым пользователем, затем измените ansible_user в inventory и проверьте ping. Не переходите к SSH hardening, пока новый вход не подтверждён.
+### Управление пользователями
+
+#### playbooks/users/manage_users.yml
+
+Создаёт и обновляет пользователей из списка managed_users в inventory/group_vars/all/vars.yml. У каждого пользователя можно задать shell, дополнительные группы, парольный хэш и несколько путей к SSH public key файлам на управляющей машине. Пользователь с группой sudo получает стандартный sudo с запросом своего пароля; парольless правило не создаётся. Для sudo-группы обязательно задайте password_hash из Vault.
+
+Пример настройки в vars.yml:
+
+~~~yaml
+managed_users:
+  - name: operator
+    shell: /bin/bash
+    groups:
+      - sudo
+    password_hash: "{{ vault_managed_user_password_hashes['operator'] }}"
+    ssh_public_key_paths:
+      - /home/me/.ssh/id_ed25519.pub
+  - name: deploy
+    groups: []
+    ssh_public_key_paths:
+      - /home/me/.ssh/deploy.pub
+~~~
+
+Если список managed_users пуст, playbook не меняет пользователей. Для создания или обновления заданных учётных записей запустите:
+
+~~~bash
+ansible-playbook playbooks/users/manage_users.yml --limit server1 --ask-vault-pass
+~~~
+
+При запуске от root укажите ansible_become=false в inventory. Если подключаетесь обычным sudo-пользователем, используйте сохранённый в Vault vault_ansible_become_password или добавьте -K для ручного ввода sudo-пароля. Не добавляйте пользователя в группу docker, если ему не нужны root-подобные полномочия без sudo.
 
 #### playbooks/bootstrap/security.yml
 
