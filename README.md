@@ -106,7 +106,7 @@ Linux-хосты задаются в inventory. Большинство серв�
 
 ## Общие переменные и секреты
 
-Общие настройки серверов лежат в inventory/group_vars/all/vars.yml, а сервисы Kubernetes — в inventory/group_vars/all/devops.yml. Ansible автоматически загружает оба файла. Секреты хранятся отдельно в зашифрованном inventory/group_vars/all/vault.yml.
+Общие настройки серверов лежат в inventory/group_vars/all/vars.yml. Секреты задаются в inventory/group_vars/all/vault.yml.
 
 Чтобы настроить отдельный сервер, добавьте host_vars. Не помещайте туда пароли или приватные ключи.
 
@@ -126,6 +126,8 @@ Linux-хосты задаются в inventory. Большинство серв�
 В командах ниже используется inventory, настроенный в ansible.cfg. Все серверные playbook рассчитаны на Debian и Ubuntu.
 
 ### Первичная настройка сервера
+
+Название каталога bootstrap означает начальную подготовку сервера: создание администратора и установку базовых настроек перед дальнейшей работой.
 
 #### playbooks/bootstrap/system.yml
 
@@ -265,9 +267,9 @@ ansible-playbook playbooks/diagnostics/host_report.yml --limit server1
 ansible-playbook playbooks/<путь>/<имя>.yml --syntax-check
 ~~~
 
-Для обычных Ansible-модулей используйте --check --diff только там, где сценарий и модули поддерживают check mode. Некоторые playbook содержат command, генерацию credentials, Certbot, Helm или операции Kubernetes; check mode не покажет полный результат и может быть неприменим при первом запуске. Удалённые сценарии с systemd, UFW и apt проверяйте на одном тестовом сервере.
+Для обычных Ansible-модулей используйте --check --diff только там, где сценарий и модули поддерживают check mode. Некоторые playbook содержат command, генерацию credentials или операции Certbot; check mode не покажет полный результат и может быть неприменим при первом запуске. Удалённые сценарии с systemd, UFW и apt проверяйте на одном тестовом сервере.
 
-Для общего отчёта Linux запустите playbooks/diagnostics/host_report.yml. Для сводки Kubernetes — playbooks/kubernetes/cluster_health.yml. Состояние конкретной службы можно проверить на сервере через systemctl status и journalctl.
+Для общего отчёта Linux запустите playbooks/diagnostics/host_report.yml. Состояние конкретной службы можно проверить на сервере через systemctl status и journalctl.
 
 Известные ограничения текущей реализации:
 
