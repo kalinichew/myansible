@@ -25,12 +25,12 @@
           security_ufw_allowed_tcp_ports before enabling UFW.
       tags: [always, firewall, ssh]
 
-    - name: Confirm bootstrap administrator is configured
+    - name: Confirm bootstrap user is configured
       ansible.builtin.assert:
         that:
-          - bootstrap_admin_user | length > 0
-          - bootstrap_admin_user != "root"
-        fail_msg: "Run 01_system.yml first and configure a non-root administrator."
+          - bootstrap_user_name | length > 0
+          - bootstrap_user_name != "root"
+        fail_msg: "Run system.yml first and configure a non-root user with sudo access."
       tags: [always, ssh, users]
 
   handlers:
