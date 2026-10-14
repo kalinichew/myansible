@@ -129,7 +129,7 @@ Linux-хосты задаются в inventory. Большинство серв�
 |---|---|
 | bootstrap_user_*, bootstrap_ssh_public_key_path, bootstrap_timezone, bootstrap_locale, ansible_become_password | Создание пользователя и sudo |
 | security_ssh_*, security_ufw_allowed_tcp_ports, security_fail2ban_* | SSH, Fail2ban и UFW |
-| docker_admin_users, docker_daemon_* | Docker |
+| docker_group_users, docker_daemon_* | Docker |
 | wireguard_interface, wireguard_address, wireguard_listen_port, wireguard_peers | WireGuard |
 | nginx_proxy_sites, nginx_proxy_webroot | NGINX и Let's Encrypt |
 | vps_hostname, vps_timezone, xray_port, xray_sni, xray_dest, xray_public_host, xray_update | Xray VLESS + Reality |
@@ -155,7 +155,7 @@ ansible-playbook playbooks/bootstrap/system.yml --limit server1 --ask-vault-pass
 ansible-playbook playbooks/bootstrap/system.yml --limit server1 --ask-vault-pass
 ~~~
 
-Playbook требует права root. Если подключаетесь по SSH как root, укажите в inventory `ansible_become=false`: root уже имеет нужные права, запуск sudo не требуется. Эта настройка добавлена в inventory/hosts.ini.example. Если подключаетесь обычным пользователем с sudo, можно ввести пароль вручную через `-K` (или `--ask-become-pass`). Чтобы Ansible брал его из Vault, добавьте пароль в `vault_ansible_become_password` и запускайте с `--ask-vault-pass`; переменная `ansible_become_password` уже связана с ним в vars.yml. Для этого SSH-пользователь должен иметь право sudo. Переменная `` задаёт sudo-права создаваемого пользователя в конце playbook и не влияет на начального SSH-пользователя.
+Playbook требует права root. Если подключаетесь по SSH как root, укажите в inventory `ansible_become=false`: root уже имеет нужные права, запуск sudo не требуется. Эта настройка добавлена в inventory/hosts.ini.example. Если подключаетесь обычным пользователем с sudo, можно ввести пароль вручную через `-K` (или `--ask-become-pass`). Чтобы Ansible брал его из Vault, добавьте пароль в `vault_ansible_become_password` и запускайте с `--ask-vault-pass`; переменная `ansible_become_password` уже связана с ним в vars.yml. Для этого SSH-пользователь должен иметь право sudo. Пользователь добавляется в группу sudo; стандартная настройка Debian/Ubuntu запрашивает пароль при повышении прав.
 
 После применения проверьте вход под новым пользователем, затем измените ansible_user в inventory и проверьте ping. Не переходите к SSH hardening, пока новый вход не подтверждён.
 
@@ -174,13 +174,13 @@ ansible-playbook playbooks/bootstrap/security.yml --limit server1
 
 #### playbooks/docker/docker_engine.yml
 
-Подключает официальный APT-репозиторий Docker, устанавливает Docker Engine CE и Compose plugin, задаёт ротацию JSON-логов. Добавляет пользователей из docker_admin_users в группу docker.
+Подключает официальный APT-репозиторий Docker, устанавливает Docker Engine CE и Compose plugin, задаёт ротацию JSON-логов. Добавляет пользователей из docker_group_users в группу docker.
 
 ~~~bash
 ansible-playbook playbooks/docker/docker_engine.yml --limit server1
 ~~~
 
-По умолчанию Docker-пользователи не добавляются в группу docker. Членство в ней даёт полномочия уровня root напрямую, поэтому задавайте docker_admin_users только осознанно. Для нестандартных архитектур проверьте список поддерживаемых архитектур в playbook.
+По умолчанию Docker-пользователи не добавляются в группу docker. Членство в ней даёт полномочия уровня root напрямую, поэтому задавайте docker_group_users только осознанно. Для нестандартных архитектур проверьте список поддерживаемых архитектур в playbook.
 
 ### Сеть и reverse proxy
 
