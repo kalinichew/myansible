@@ -140,6 +140,8 @@ ansible-playbook playbooks/bootstrap/system.yml --limit server1 --ask-vault-pass
 ansible-playbook playbooks/bootstrap/system.yml --limit server1 --ask-vault-pass
 ~~~
 
+Playbook требует права root, поэтому начальное SSH-подключение должно идти от root (как в примере inventory) или от пользователя с правом sudo. Если sudo запрашивает пароль, добавьте `-K` (или `--ask-become-pass`) и введите пароль sudo-пользователя. Чтобы не вводить его при каждом запуске, используйте root для начальной настройки либо заранее настройте для подключаемого пользователя NOPASSWD в sudoers. Параметр `bootstrap_admin_passwordless_sudo` настраивает права создаваемого администратора в конце playbook и не заменяет пароль sudo для исходного SSH-пользователя.
+
 После применения проверьте вход под новым пользователем, затем измените ansible_user в inventory и проверьте ping. Не переходите к SSH hardening, пока новый вход не подтверждён.
 
 #### playbooks/bootstrap/security.yml
